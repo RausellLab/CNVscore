@@ -16,6 +16,8 @@ mkdir -p /var/lib/shiny-server/bookmarks/shiny
 
 RUN apt-get install libnlopt-dev -y
 
+RUN apt-get install cmake -y
+
 # Install GitHub packages
 
 RUN R -e "devtools::install_github('egenn/rtemis@c0148033c6c6557cd7b7efc3dc4be002891b282f')"
