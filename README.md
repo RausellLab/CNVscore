@@ -60,7 +60,7 @@ In addition, CNVscore can be queried and interrogated at <http://cnvxplorer.com>
 
 git clone https://github.com/RausellLab/CNVxplorer.git
 
-mv CNVscore/Dockerfile .
+cd CNVscore/api
 
 docker build -t cnvscore . # The tag "cnvscore" is optional
 
