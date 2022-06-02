@@ -138,6 +138,9 @@ bancco_logistic_clinvar_del_omim  <- list()
 bancco_logistic_clinvar_dup_length  <- list()
 bancco_logistic_clinvar_dup_n_genes  <- list()
 bancco_logistic_clinvar_dup_omim  <- list()
+#
+bancco_bayesian_decipher_del_nohuman <- list()
+bancco_bayesian_decipher_dup_nohuman <- list()
 
 for (i in 1:23) {
   print(i)
