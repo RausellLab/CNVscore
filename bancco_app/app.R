@@ -578,7 +578,7 @@ server <- function(input, output) {
         #   predicted_user_input()[[4]][[2]])
         
  
-      }
+      # }
       
     })
     
