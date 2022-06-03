@@ -1370,7 +1370,7 @@ generate_rules <- function(model, input_obs) {
 # https://medium.com/@JB_Pleynet/how-to-do-an-efficient-r-api-81e168562731
 # ------------------------------------------------------------------------------
 
-library(plumber)
+# library(plumber)
 
 
 # ------------------------------------------------------------------------------
