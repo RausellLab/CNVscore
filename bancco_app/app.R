@@ -125,45 +125,45 @@ plot_test <- function(..., roc = TRUE) {
 
 # print(paste0(getwd()))
 
-# bancco_bayesian_clinvar_del_nohuman <- list()
-# bancco_bayesian_clinvar_del_human  <- list()
-# #
-# bancco_bayesian_clinvar_dup_nohuman  <- list()
-# bancco_bayesian_clinvar_dup_human  <- list()
-# #
-# bancco_logistic_clinvar_del_length  <- list()
-# bancco_logistic_clinvar_del_n_genes  <- list()
-# bancco_logistic_clinvar_del_omim  <- list()
-# #
-# bancco_logistic_clinvar_dup_length  <- list()
-# bancco_logistic_clinvar_dup_n_genes  <- list()
-# bancco_logistic_clinvar_dup_omim  <- list()
-# #
-# bancco_bayesian_decipher_del_nohuman <- list()
-# bancco_bayesian_decipher_dup_nohuman <- list()
-# 
-# for (i in 1:23) {
-#   print(i)
-#   bancco_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_del_nohuman/bayesian_clinvar_del_nohuman_{i}.RData'))
-#   bancco_bayesian_clinvar_del_human[[i]] <- readRDS(glue('models/bayesian_clinvar_del_human/bayesian_clinvar_del_human_{i}.RData'))
-#   bancco_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_nohuman/bayesian_clinvar_dup_nohuman_{i}.RData'))
-#   bancco_bayesian_clinvar_dup_human[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_human/bayesian_clinvar_dup_human_{i}.RData'))
-#   bancco_logistic_clinvar_del_length[[i]] <- readRDS(glue('models/logistic_clinvar_del_length/logistic_clinvar_del_length_{i}.RData'))
-#   bancco_logistic_clinvar_del_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_del_n_genes/logistic_clinvar_del_n_genes_{i}.RData'))
-#   bancco_logistic_clinvar_del_omim[[i]] <- readRDS(glue('models/logistic_clinvar_del_omim/logistic_clinvar_del_omim_{i}.RData'))
-#   bancco_logistic_clinvar_dup_length[[i]] <- readRDS(glue('models/logistic_clinvar_dup_length/logistic_clinvar_dup_length_{i}.RData'))
-#   bancco_logistic_clinvar_dup_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_dup_n_genes/logistic_clinvar_dup_n_genes_{i}.RData'))
-#   bancco_logistic_clinvar_dup_omim[[i]] <- readRDS(glue('models/logistic_clinvar_dup_omim/logistic_clinvar_dup_omim_{i}.RData'))
-#   
-#   bancco_bayesian_decipher_del_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_del_nohuman/bayesian_decipher_del_nohuman_{i}.RData'))
-#   bancco_bayesian_decipher_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_dup_nohuman/bayesian_decipher_dup_nohuman_{i}.RData'))
-# }
+bancco_bayesian_clinvar_del_nohuman <- list()
+bancco_bayesian_clinvar_del_human  <- list()
+#
+bancco_bayesian_clinvar_dup_nohuman  <- list()
+bancco_bayesian_clinvar_dup_human  <- list()
+#
+bancco_logistic_clinvar_del_length  <- list()
+bancco_logistic_clinvar_del_n_genes  <- list()
+bancco_logistic_clinvar_del_omim  <- list()
+#
+bancco_logistic_clinvar_dup_length  <- list()
+bancco_logistic_clinvar_dup_n_genes  <- list()
+bancco_logistic_clinvar_dup_omim  <- list()
+#
+bancco_bayesian_decipher_del_nohuman <- list()
+bancco_bayesian_decipher_dup_nohuman <- list()
+
+for (i in 1:23) {
+  print(i)
+  bancco_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_del_nohuman/bayesian_clinvar_del_nohuman_{i}.RData'))
+  bancco_bayesian_clinvar_del_human[[i]] <- readRDS(glue('models/bayesian_clinvar_del_human/bayesian_clinvar_del_human_{i}.RData'))
+  bancco_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_nohuman/bayesian_clinvar_dup_nohuman_{i}.RData'))
+  bancco_bayesian_clinvar_dup_human[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_human/bayesian_clinvar_dup_human_{i}.RData'))
+  bancco_logistic_clinvar_del_length[[i]] <- readRDS(glue('models/logistic_clinvar_del_length/logistic_clinvar_del_length_{i}.RData'))
+  bancco_logistic_clinvar_del_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_del_n_genes/logistic_clinvar_del_n_genes_{i}.RData'))
+  bancco_logistic_clinvar_del_omim[[i]] <- readRDS(glue('models/logistic_clinvar_del_omim/logistic_clinvar_del_omim_{i}.RData'))
+  bancco_logistic_clinvar_dup_length[[i]] <- readRDS(glue('models/logistic_clinvar_dup_length/logistic_clinvar_dup_length_{i}.RData'))
+  bancco_logistic_clinvar_dup_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_dup_n_genes/logistic_clinvar_dup_n_genes_{i}.RData'))
+  bancco_logistic_clinvar_dup_omim[[i]] <- readRDS(glue('models/logistic_clinvar_dup_omim/logistic_clinvar_dup_omim_{i}.RData'))
+
+  bancco_bayesian_decipher_del_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_del_nohuman/bayesian_decipher_del_nohuman_{i}.RData'))
+  bancco_bayesian_decipher_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_dup_nohuman/bayesian_decipher_dup_nohuman_{i}.RData'))
+}
 
 # ------------------------------------------------------------------------------
 # LOAD DATA
 # ------------------------------------------------------------------------------
 
-# source('load_data.R')
+source('load_data.R') 
 
 # ------------------------------------------------------------------------------
 # APPLICATION
