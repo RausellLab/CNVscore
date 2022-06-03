@@ -125,47 +125,45 @@ plot_test <- function(..., roc = TRUE) {
 
 # print(paste0(getwd()))
 
-bancco_bayesian_clinvar_del_nohuman <- list()
-bancco_bayesian_clinvar_del_human  <- list()
-#
-bancco_bayesian_clinvar_dup_nohuman  <- list()
-bancco_bayesian_clinvar_dup_human  <- list()
-#
-bancco_logistic_clinvar_del_length  <- list()
-bancco_logistic_clinvar_del_n_genes  <- list()
-bancco_logistic_clinvar_del_omim  <- list()
-#
-bancco_logistic_clinvar_dup_length  <- list()
-bancco_logistic_clinvar_dup_n_genes  <- list()
-bancco_logistic_clinvar_dup_omim  <- list()
-#
-bancco_bayesian_decipher_del_nohuman <- list()
-bancco_bayesian_decipher_dup_nohuman <- list()
-
-for (i in 1:23) {
-  print(i)
-  bancco_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_del_nohuman/bayesian_clinvar_del_nohuman_{i}.RData'))
-  bancco_bayesian_clinvar_del_human[[i]] <- readRDS(glue('models/bayesian_clinvar_del_human/bayesian_clinvar_del_human_{i}.RData'))
-  bancco_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_nohuman/bayesian_clinvar_dup_nohuman_{i}.RData'))
-  bancco_bayesian_clinvar_dup_human[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_human/bayesian_clinvar_dup_human_{i}.RData'))
-  bancco_logistic_clinvar_del_length[[i]] <- readRDS(glue('models/logistic_clinvar_del_length/logistic_clinvar_del_length_{i}.RData'))
-  bancco_logistic_clinvar_del_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_del_n_genes/logistic_clinvar_del_n_genes_{i}.RData'))
-  bancco_logistic_clinvar_del_omim[[i]] <- readRDS(glue('models/logistic_clinvar_del_omim/logistic_clinvar_del_omim_{i}.RData'))
-  bancco_logistic_clinvar_dup_length[[i]] <- readRDS(glue('models/logistic_clinvar_dup_length/logistic_clinvar_dup_length_{i}.RData'))
-  bancco_logistic_clinvar_dup_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_dup_n_genes/logistic_clinvar_dup_n_genes_{i}.RData'))
-  bancco_logistic_clinvar_dup_omim[[i]] <- readRDS(glue('models/logistic_clinvar_dup_omim/logistic_clinvar_dup_omim_{i}.RData'))
-  
-  bancco_bayesian_decipher_del_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_del_nohuman/bayesian_decipher_del_nohuman_{i}.RData'))
-  bancco_bayesian_decipher_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_dup_nohuman/bayesian_decipher_dup_nohuman_{i}.RData'))
-  
-
-}
+# bancco_bayesian_clinvar_del_nohuman <- list()
+# bancco_bayesian_clinvar_del_human  <- list()
+# #
+# bancco_bayesian_clinvar_dup_nohuman  <- list()
+# bancco_bayesian_clinvar_dup_human  <- list()
+# #
+# bancco_logistic_clinvar_del_length  <- list()
+# bancco_logistic_clinvar_del_n_genes  <- list()
+# bancco_logistic_clinvar_del_omim  <- list()
+# #
+# bancco_logistic_clinvar_dup_length  <- list()
+# bancco_logistic_clinvar_dup_n_genes  <- list()
+# bancco_logistic_clinvar_dup_omim  <- list()
+# #
+# bancco_bayesian_decipher_del_nohuman <- list()
+# bancco_bayesian_decipher_dup_nohuman <- list()
+# 
+# for (i in 1:23) {
+#   print(i)
+#   bancco_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_del_nohuman/bayesian_clinvar_del_nohuman_{i}.RData'))
+#   bancco_bayesian_clinvar_del_human[[i]] <- readRDS(glue('models/bayesian_clinvar_del_human/bayesian_clinvar_del_human_{i}.RData'))
+#   bancco_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_nohuman/bayesian_clinvar_dup_nohuman_{i}.RData'))
+#   bancco_bayesian_clinvar_dup_human[[i]] <- readRDS(glue('models/bayesian_clinvar_dup_human/bayesian_clinvar_dup_human_{i}.RData'))
+#   bancco_logistic_clinvar_del_length[[i]] <- readRDS(glue('models/logistic_clinvar_del_length/logistic_clinvar_del_length_{i}.RData'))
+#   bancco_logistic_clinvar_del_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_del_n_genes/logistic_clinvar_del_n_genes_{i}.RData'))
+#   bancco_logistic_clinvar_del_omim[[i]] <- readRDS(glue('models/logistic_clinvar_del_omim/logistic_clinvar_del_omim_{i}.RData'))
+#   bancco_logistic_clinvar_dup_length[[i]] <- readRDS(glue('models/logistic_clinvar_dup_length/logistic_clinvar_dup_length_{i}.RData'))
+#   bancco_logistic_clinvar_dup_n_genes[[i]] <- readRDS(glue('models/logistic_clinvar_dup_n_genes/logistic_clinvar_dup_n_genes_{i}.RData'))
+#   bancco_logistic_clinvar_dup_omim[[i]] <- readRDS(glue('models/logistic_clinvar_dup_omim/logistic_clinvar_dup_omim_{i}.RData'))
+#   
+#   bancco_bayesian_decipher_del_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_del_nohuman/bayesian_decipher_del_nohuman_{i}.RData'))
+#   bancco_bayesian_decipher_dup_nohuman[[i]] <- readRDS(glue('models/bayesian_decipher_dup_nohuman/bayesian_decipher_dup_nohuman_{i}.RData'))
+# }
 
 # ------------------------------------------------------------------------------
 # LOAD DATA
 # ------------------------------------------------------------------------------
 
-source('load_data.R')
+# source('load_data.R')
 
 # ------------------------------------------------------------------------------
 # APPLICATION
@@ -248,7 +246,7 @@ server <- function(input, output) {
           
           
           pre_bayesian_decipher_del_nohuman <- predict_chrom_aware_rtemis(bancco_bayesian_decipher_del_nohuman, reactive_annotated()[[1]] , 'deletion - decipher', 'unbiased')
-          pre_bayesian_decipher_dup_nohuman <- predict_chrom_aware_rtemis(bancco_bayesian_decipher_dup_nohuman, reactive_annotated()[[1]] , 'duplication - decipher', 'unbiased')
+          pre_bayesian_decipher_dup_nohuman <- predict_chrom_aware_rtemis(bancco_bayesian_decipher_dup_nohuman, reactive_annotated()[[2]] , 'duplication - decipher', 'unbiased')
           
           
           pre_logistic_clinvar_del_length <- predict_chrom_aware(bancco_logistic_clinvar_del_length, reactive_annotated()[[1]], is_bancco = TRUE, tag_bancco = 'Deletion - logistic - clinical ~ length')
@@ -264,8 +262,8 @@ server <- function(input, output) {
           pre_bayesian_clinvar_dup_nohuman[[3]] <- pre_bayesian_clinvar_dup_nohuman[[3]] %>% select(-c(id, map_estimate, mad, chrom))
           pre_bayesian_clinvar_dup_human[[3]] <- pre_bayesian_clinvar_dup_human[[3]] %>% select(-c(id, map_estimate, mad, chrom))
           
-          pre_bayesian_decipher_del_nohuman <- pre_bayesian_decipher_del_nohuman[[3]] %>% select(-c(id, map_estimate, mad, chrom))
-          pre_bayesian_decipher_dup_nohuman <- pre_bayesian_decipher_dup_nohuman[[3]] %>% select(-c(id, map_estimate, mad, chrom))
+          pre_bayesian_decipher_del_nohuman[[3]] <- pre_bayesian_decipher_del_nohuman[[3]] %>% select(-c(id, map_estimate, mad, chrom))
+          pre_bayesian_decipher_dup_nohuman[[3]] <- pre_bayesian_decipher_dup_nohuman[[3]] %>% select(-c(id, map_estimate, mad, chrom))
           
           
           pre_logistic_clinvar_del_length[[3]] <- pre_logistic_clinvar_del_length[[3]] %>% select(.pred_pathogenic, clinical, tag) %>% mutate(sd = NA)
@@ -372,7 +370,20 @@ server <- function(input, output) {
       
 
       # if (nrow(reactive_annotated()[[1]]) > 0 & nrow(reactive_annotated()[[2]]) > 0) {
-
+      # plot_test(
+      #   test141[[1]][[1]],
+      #   test141[[2]][[1]],
+      #   test141[[3]][[1]],
+      #   test141[[4]][[1]],
+      #   test141[[5]][[1]],
+      #   test141[[6]][[1]],
+      #   test141[[7]][[1]],
+      #   test141[[8]][[1]],
+      #   test141[[9]][[1]],
+      #   test141[[10]][[1]],
+      #   test141[[11]][[1]],
+      #   test141[[12]][[1]]
+      # )
 
       p1_roc <- plot_test(
         predicted_user_input()[[1]][[1]],
@@ -499,13 +510,14 @@ server <- function(input, output) {
                   predicted_user_input()[[10]][[3]],
                   predicted_user_input()[[11]][[3]],
                   predicted_user_input()[[12]][[3]]
-                  
-                  
         )
         
         
-        bind_rows(p1_roc %>% rename(p1 = specificity, p2 = sensitivity) %>% mutate(tag3 = 'roc'), 
-                  p1_pr %>% rename(p1 = recall, p2 = precision) %>% mutate(tag3 = 'pr'))
+
+        
+        
+        # bind_rows(p1_roc %>% rename(p1 = specificity, p2 = sensitivity) %>% mutate(tag3 = 'roc'), 
+        #           p1_pr %>% rename(p1 = recall, p2 = precision) %>% mutate(tag3 = 'pr'))
         
         # p1_roc <- bind_rows(
         #   predicted_user_input()[[1]][[1]], 
