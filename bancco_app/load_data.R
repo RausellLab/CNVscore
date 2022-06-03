@@ -5,4 +5,4 @@ load('local_data_features2.RData')
 load('local_data_features3.RData')
 load('local_data_features4.RData.gz')
 
-source('/cnvscore/R/cnvscore_functions.R')
+source('cnvscore_functions.R')
