@@ -9,20 +9,20 @@ Welcome to the official Github repository of **CNVscore**.
 
 The CNVscore manuscript is available on:
 
-[insert]
+TBA
 
 
 # Table of contents
 
   - [Overview](#Overview)
-  - [Availability](#Availability)
   - [API query example](#api-query-example)
   - [Response example](#response-example)
+  - [Availability](#Availability)
   - [Docker installation](#docker-installation)
   - [Authors and contact](#authors-and-contact)
   - [License](#License)
   - [Disclaimer](#Disclaimer)
-  - [References](#References)
+  - [Reference](#Reference)
   - [News](#News)
 
 ## Overview
@@ -34,12 +34,6 @@ The CNVscore manuscript is available on:
 <img  src="https://github.com/RausellLab/CNVscore/blob/main/doc/CNVscore_overview.svg">
 
 </p>
-
-## Availability
-
-CNVscore can be deployed as a private API service through a Docker image without external dependencies. Instructions to locally deploy the API service are provided in the next section.
-
-In addition, CNVscore can be queried and interrogated at <http://cnvxplorer.com>. 
 
 ## API query example
 
@@ -63,6 +57,14 @@ TBA
 ]
 ```
 
+## Availability
+
+CNVscore can be deployed as a private API service through a Docker image without external dependencies. Instructions to locally deploy the API service are provided in the next section.
+
+In addition, CNVscore can be queried and interrogated at <http://cnvxplorer.com>. 
+
+
+
 ## Docker installation
 
 ``` bash
@@ -71,9 +73,7 @@ TBA
 
 git clone https://github.com/RausellLab/CNVscore.git
 
-cd CNVscore/api
-
-docker build -t cnvscore . # The tag "cnvscore" is optional
+docker build -t cnvscore -f api/Dockerfile . # The tag "cnvscore" is optional
 
 docker run -d -p 3838:3838 cnvscore # -p (specify port) -d (detached mode)
 
@@ -120,7 +120,7 @@ limited to direct, indirect, special, or consequential damages, arising
 out of, resulting from, or in any way connected with the use of
 CNVscore or documents available from it.
 
-## References
+## Reference
 
 TBA
 

@@ -11,7 +11,7 @@ library(rtemis)
 library(rstanarm)
 library(valr)
 
-# setwd('/cnvscore')
+setwd('/cnvscore')
 
 
 # api_bayesian_clinvar_del_nohuman <- bayesian_clinvar_del_nohuman
