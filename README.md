@@ -73,7 +73,9 @@ In addition, CNVscore can be queried and interrogated at <http://cnvxplorer.com>
 
 git clone https://github.com/RausellLab/CNVscore.git
 
-docker build -t cnvscore -f api/Dockerfile . # The tag "cnvscore" is optional
+cd CNVscore 
+
+docker build -t cnvscore . -f api/Dockerfile . # The tag "cnvscore" is optional
 
 docker run -d -p 3838:3838 cnvscore # -p (specify port) -d (detached mode)
 
