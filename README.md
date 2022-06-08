@@ -16,8 +16,8 @@ The CNVscore manuscript is available on:
 
   - [Overview](#Overview)
   - [Availability](#Availability)
-  - [API query example](api-query-example)
-  - [Response example](response-example)
+  - [API query example](#api-query-example)
+  - [Response example](#response-example)
   - [Docker installation](#docker-installation)
   - [Authors and contact](#authors-and-contact)
   - [License](#License)
@@ -122,7 +122,7 @@ CNVscore or documents available from it.
 
 ## References
 
-[insert]
+TBA
 
 ## News
 
