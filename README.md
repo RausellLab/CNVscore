@@ -16,6 +16,8 @@ The CNVscore manuscript is available on:
 
   - [Overview](#Overview)
   - [Availability](#Availability)
+  - [API query example](api-query-example)
+  - [Response example](response-example)
   - [Docker installation](#docker-installation)
   - [Authors and contact](#authors-and-contact)
   - [License](#License)
@@ -29,7 +31,7 @@ The CNVscore manuscript is available on:
 
 <p align="center">
 
-<img  src="https://github.com/RausellLab/CNVscore/blob/master/doc/CNVscore_overview.svg">
+<img  src="https://github.com/RausellLab/CNVscore/blob/main/doc/CNVscore_overview.svg">
 
 </p>
 
