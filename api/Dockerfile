@@ -50,6 +50,7 @@ RUN R -e "install.packages(c('shiny', \
 RUN mkdir /cnvscore
 
 COPY bancco_app/models/bayesian_clinvar_del_nohuman /cnvscore
+COPY bancco_app/models/bayesian_clinvar_dup_nohuman /cnvscore
 COPY api/load_data.R /cnvscore
 COPY api/main_api.R /cnvscore
 COPY api/plumber.R /cnvscore

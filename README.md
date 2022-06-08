@@ -29,7 +29,7 @@ The CNVscore manuscript is available on:
 
 <p align="center">
 
-<img  src="https://github.com/RausellLab/CNVxplorer/blob/master/doc/Overview.svg">
+<img  src="https://github.com/RausellLab/CNVscore/blob/master/doc/CNVscore_overview.svg">
 
 </p>
 
@@ -39,18 +39,27 @@ CNVscore can be deployed as a private API service through a Docker image without
 
 In addition, CNVscore can be queried and interrogated at <http://cnvxplorer.com>. 
 
-## Example API query
-
-### Individual CNV
+## API query example
 
 ``` bash
+TBA
 ```
 
-### Multiple CNVs
+## Response example
 
 ``` bash
+[
+  {
+    "chrom": "17",
+    "start": "61,158,866",
+    "end": "61,353,248",
+    "variant_class": "deletion",
+    "cnvscore": 0.9132,
+    "uncertainty_level": 1,
+    "rules": "min_expression<=39 & max_cadd>34.5 (risk:0.87 - support:3910);min_expression<=33.5 & max_cadd>37.5 (risk:0.88 - support:3445);loeuf>0.8085 & cpg_density>1.5 (risk:0.81 - support:789);enhancer<=0.000282170504594472 & max_cadd>40.5 (risk:0.87 - support:3544);pli>82.5 & max_cadd>25.7 (risk:0.91 - support:1385)"
+  }
+]
 ```
-
 
 ## Docker installation
 
@@ -58,7 +67,7 @@ In addition, CNVscore can be queried and interrogated at <http://cnvxplorer.com>
 
 # Note: the first session after the deployment is slower since the application loads all the data required
 
-git clone https://github.com/RausellLab/CNVxplorer.git
+git clone https://github.com/RausellLab/CNVscore.git
 
 cd CNVscore/api
 
@@ -67,8 +76,7 @@ docker build -t cnvscore . # The tag "cnvscore" is optional
 docker run -d -p 3838:3838 cnvscore # -p (specify port) -d (detached mode)
 
 # The port 3838 is optional. Please make sure you set a port not blocked by firewalls.
-# If you change the port number (3838) by any other, make sure to set it in the Dockerfile 
-# (EXPOSE instruction)
+# If you change the port number (3838) by any other, make sure to set it in the Dockerfile (EXPOSE instruction)
 ```
 
 ## Authors and contact
@@ -116,9 +124,5 @@ CNVscore or documents available from it.
 
 ## News
 
-ou may follow us in Twitter for regular news and updates:
+You may follow us in Twitter for regular news and updates:
 <https://twitter.com/AntonioRausell>
-
-# CNVscore
-Machine-learning model for the prioritization of CNVs with uncertainty estimates in rare disease patients
-
