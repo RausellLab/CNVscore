@@ -15,6 +15,7 @@ TBA
 # Table of contents
 
   - [Overview](#Overview)
+  - [API visual documentation](#api-visual-documentation)
   - [API query example](#api-query-example)
   - [Response example](#response-example)
   - [Availability](#Availability)
@@ -35,10 +36,17 @@ TBA
 
 </p>
 
+## API visual documentation
+
+You can test the API directly on your web browser: [API UI](http://35.180.225.167:3838/__swagger__/)
+
+
 ## API query example
 
 ``` bash
-TBA
+
+curl -X POST "http://35.180.225.167:3838/classifier?input_chrom=17&input_start=61158866&input_end=61353248&input_type=deletion"
+
 ```
 
 ## Response example
