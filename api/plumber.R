@@ -29,26 +29,40 @@ for (i in 1:23) {
 source('load_data.R')
 
 
-#* @filter checkAuth
+#* @post /classifier
+function(res, req, x=NA){
+  
+  if (is.na(x)) {
+    res$status <- 400  
+    list(error = "Feature x is missing.")
+  } else {
+    # ... # else continue with prediction
+  }
+  
+}
+
+
+
+#* @post /classifier
 function(req, res){
   if (is.null(req$input_chrom)){
     
-    res$status <- 401 # Unauthorized
+    res$status <- 400 
     return(list(error="Missing chromosome"))
     
   } else if (is.null(req$input_start)) {
     
-    res$status <- 401 # Unauthorized
+    res$status <- 400
     return(list(error="Missing genomic interval - start"))
     
   } else if (is.null(req$input_end)) {
     
-    res$status <- 401 # Unauthorized
+    res$status <- 400
     return(list(error="Missing genomic interval - end"))
     
   } else if (is.null(req$input_type)) {
 
-    res$status <- 401 # Unauthorized
+    res$status <- 400
     return(list(error="Missing variant type"))
   
   } else {
