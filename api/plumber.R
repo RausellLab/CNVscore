@@ -30,21 +30,8 @@ source('load_data.R')
 
 
 #* @post /classifier
-function(res, req, x=NA){
-  
-  if (is.na(x)) {
-    res$status <- 400  
-    list(error = "Feature x is missing.")
-  } else {
-    # ... # else continue with prediction
-  }
-  
-}
-
-
-
-#* @post /classifier
 function(req, res){
+  
   if (is.null(req$input_chrom)){
     
     res$status <- 400 
