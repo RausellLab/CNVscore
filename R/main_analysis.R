@@ -1,4 +1,10 @@
 
+
+
+# ------------------------------------------------------------------------------
+# LOAD LIBRARIES
+# ------------------------------------------------------------------------------
+
 library(rules)
 library(valr)
 library(recipes)
@@ -61,27 +67,9 @@ google_calc_results <- gs4_create(paste0("cnvscore_results_", Sys.Date()), sheet
 
 ## CREATE FOLDER
 
-current_date <- '02_04_22'
+# current_date <- '02_04_22'
 
-tibble(name = c('Supp Table 1. Reference variants databases',
-                'Supp Table 2. Summary of the tools used in benchmarks',
-                'Supp Table 3. List of unbiased featues',
-                'Supp Table 4. List of knowledge-based featues',
-                # 'Supp Table 5. Nº CNVs across chromosomes - Training dataset (duplications)',
-                'Supp Table 5. Nº pathogenic and benign CNVs across benchmark datasets',
-                'Supp Table 6. Results - ClinVar DEL',
-                'Supp Table 7. Results - ClinVar DEL - Reliability scores',
-                'Supp Table 8. Results - ClinVar DUP',
-                'Supp Table 9. Results - ClinVar Ind. (First evaluation since Jan 2021)',
-                'Supp Table 10. Results - DECIPHER DEL',
-                'Supp Table 11. Results - DECIPHER DEL - Reliability scores',
-                'Supp Table 12. Results - DECIPHER DUP',
-                'Supp Table 13. Results - DECIPHER Scenario #1 (Pathogenic CNVs mapping 0 OMIM genes - Benign CNVs mapping >0 OMIM genes)',
-                'Supp Table 14. Results - DECIPHER Scenario #2 (Pathogenic CNVs mapping 0 OMIM genes - Benign CNVs mapping 0 OMIM genes))',
-                'Supp Table 15. Results - DECIPHER Scenario #3 (Pathogenic CNVs mapping 0 protein-coding genes - Benign CNVs mapping 0 protein-coding genes)',
-                'Supp Table 16. Results - DECIPHER Scenario #4 (Pathogenic CNVs mapping >0 OMIM genes - Benign CNVs mapping >0 OMIM genes)',
-                'Supp Table 18')) %>%
-  sheet_write(google_calc_results, sheet = "index")
+
 
 
 # save(pnull,
@@ -150,21 +138,6 @@ vector_yes_human_control <- features_tbl %>% filter(human_control == 'yes') %>% 
 vector_no_human_control <- features_tbl %>% filter(human_control == 'no') %>% pull(name)
 vector_total_human_control <- features_tbl %>% pull(name)
 
-
-
-features_tbl %>%
-  rename(knowledge_based = human_control) %>%
-  filter(knowledge_based == 'no') %>%
-  select(-knowledge_based) %>%
-sheet_write(google_calc_results, sheet = "Supp. Table 3")
-
-features_tbl %>%
-  rename(knowledge_based = human_control) %>%
-  filter(knowledge_based == 'yes') %>%
-  select(-knowledge_based) %>%
-  sheet_write(google_calc_results, sheet = "Supp. Table 4")
-  
-
 # ------------------------------------------------------------------------------
 # DOWNLOAD CNV files
 # ------------------------------------------------------------------------------
@@ -224,7 +197,7 @@ beyter_et_al <- read_tsv('data/ont_sv_high_confidence_SVs.sorted.vcf.gz', skip =
   mutate(length_cnv = end - start + 1) %>%
   filter(length_cnv >= 50) %>%
   select(-starts_with('trr'), -length) %>%
-  bind_rows(read_tsv('ont_sv_high_confidence_tandemdup.csv') %>% 
+  bind_rows(read_tsv('data/ont_sv_high_confidence_tandemdup.csv') %>% 
   select(ref_chrom, ref_begin, ref_end) %>%
   distinct() %>%
   rename(chrom = ref_chrom, start = ref_begin, end = ref_end) %>%
@@ -263,9 +236,6 @@ beyter_et_al <- beyter_et_al %>%
   mutate(id = 'is_gonna_be_removed') %>%
   select(id, chrom, start, end, variant_class, length_cnv, source, clinical)
   
-
-
-
 
 submission_summary <- read_tsv('data/submission_summary_2021-10.txt', skip = 15)
 submission_summary_only <- read_tsv('data/variant_summary_2021-10.txt') %>% 
@@ -307,9 +277,6 @@ submission_nigreisy <- submission_summary %>%
   sample_n(1) %>%
   ungroup() %>%
   distinct()
-
-
-
 
 
 clinvar_cnvs_hg37 <- read_tsv('data/variant_summary_2021-10.txt') %>% 
@@ -965,38 +932,6 @@ figure_stacked_per_type_variant <- annotation_stacked %>%
         axis.title=element_text(size=14,face="bold"),
         axis.text.x=element_text(angle = -45, hjust = 0))
 
-# Test - CNVs mapping ------------------------------------------------------------------------------
-
-
-# check_omim_match_del <- input_check_cnv_del_pathogenic_clinvar %>%
-#   bind_rows(input_check_cnv_del_benign) %>%
-#   bed_intersect(hgcn_genes %>% 
-#                   filter(omim == 'Yes') %>% 
-#                   select(chrom, start, end),
-#                 suffix = c('', '.y')) %>%
-#   select(-c(start.y, end.y, .source, .overlap)) %>%
-#   distinct(chrom, start, end, .keep_all = TRUE) 
-# 
-# 
-# check_omim_matched_del <- matching_length(bin_length = 100, check_omim_match_del)
-# 
-# 
-# check_protein_match_del <- input_check_cnv_del_pathogenic_clinvar %>%
-#   bind_rows(input_check_cnv_del_benign) %>%
-#   bed_intersect(hgcn_genes  %>% 
-#                   select(chrom, start, end),
-#                 suffix = c('', '.y')) %>%
-#   select(-c(start.y, end.y, .source, .overlap)) %>%
-#   distinct(chrom, start, end, .keep_all = TRUE) 
-# 
-# 
-# check_protein_matched_del <- matching_length(bin_length = 100, check_protein_match_del)
-# 
-# 
-# check_omim_matched_del %>% count(clinical)
-# check_protein_matched_del  %>% count(clinical)
-# clinvar_match_deletion  %>% count(clinical)
-
 
   
 
@@ -1236,14 +1171,14 @@ figure_length_distribution_after_matching2 <- density_length_df_after %>%
 # N. Annotation------------------------------------------------------------------------------
 
 
-output_clinvar_deletion <- check_cnv_v2(clinvar_match_deletion)
-output_clinvar_duplication <- check_cnv_v2(clinvar_match_duplication)
-output_decipher_deletion <- check_cnv_v2(decipher_match_deletion)
-output_decipher_duplication <- check_cnv_v2(decipher_match_duplication)
-output_clinvar_20 <- check_cnv_v2(clinvar_20_match)
+output_clinvar_deletion <- check_cnv_v2(clinvar_match_deletion %>% select(-id))
+output_clinvar_duplication <- check_cnv_v2(clinvar_match_duplication  %>% select(-id))
+output_decipher_deletion <- check_cnv_v2(decipher_match_deletion  %>% select(-id))
+output_decipher_duplication <- check_cnv_v2(decipher_match_duplication  %>% select(-id))
+output_clinvar_20 <- check_cnv_v2(clinvar_20_match  %>% select(-id))
 
 
-output_clinvar_omim_deletion <- check_cnv_v2(check_omim_matched_del)
+# output_clinvar_omim_deletion <- check_cnv_v2(check_omim_matched_del)
 # N. Nigreisy writing------------------------------------------------------------------------------
 
 
@@ -1515,12 +1450,12 @@ rplot(print_cor = TRUE, legend = FALSE) +
 
 # Load models
 
-bayesian_clinvar_del_nohuman <- readRDS('bayesian_clinvar_del_nohuman.RData')
-bayesian_clinvar_dup_nohuman <- readRDS('bayesian_clinvar_dup_nohuman.RData')
-bayesian_clinvar_del_human <- readRDS('bayesian_clinvar_del_human.RData')
-bayesian_clinvar_dup_human <- readRDS('bayesian_clinvar_dup_human.RData')
-bayesian_clinvar_del_both <- readRDS('bayesian_clinvar_del_both.RData')
-bayesian_clinvar_dup_both <- readRDS('bayesian_clinvar_dup_both.RData')
+bayesian_clinvar_del_nohuman <- readRDS('models/bayesian_clinvar_del_nohuman.RData')
+bayesian_clinvar_dup_nohuman <- readRDS('models/bayesian_clinvar_dup_nohuman.RData')
+bayesian_clinvar_del_human <- readRDS('models/bayesian_clinvar_del_human.RData')
+bayesian_clinvar_dup_human <- readRDS('models/bayesian_clinvar_dup_human.RData')
+bayesian_clinvar_del_both <- readRDS('models/bayesian_clinvar_del_both.RData')
+bayesian_clinvar_dup_both <- readRDS('models/bayesian_clinvar_dup_both.RData')
 
 
 # ------------------------------------------------------------------------------
@@ -1534,14 +1469,14 @@ plan('multiprocess', workers = 5)
 
 
 
-bayesian_clinvar_del_omim <- rtemis_step1(input_tbl = output_clinvar_omim_deletion,
-                                          tag_variant = 'deletion',
-                                          vector_features = vector_no_human_control,
-                                          tag_features <- 'unbiased (only CNVs mapping OMIM genes)',
-                                          input_prior = 'hs',
-                                          nc = 23,
-                                          input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
-
+# bayesian_clinvar_del_omim <- rtemis_step1(input_tbl = output_clinvar_omim_deletion,
+#                                           tag_variant = 'deletion',
+#                                           vector_features = vector_no_human_control,
+#                                           tag_features <- 'unbiased (only CNVs mapping OMIM genes)',
+#                                           input_prior = 'hs',
+#                                           nc = 23,
+#                                           input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
+# 
 
 
 tic()
@@ -1659,32 +1594,32 @@ gbm_clinvar_dup_human <- chrom_aware(input_tbl = output_clinvar_deletion,
 
 
 # Deletion CNVs------------------------------------------------------------------------------
-bayesian_clinvar_del_nohuman <- rtemis_step1(input_tbl = output_clinvar_deletion,
-                                             tag_variant = 'deletion',
-                                             vector_features = vector_no_human_control,
-                                             tag_features <- 'no_human',
-                                             input_prior = 'hs',
-                                             nc = 23,
-                                             input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
-
-
-bayesian_decipher_del_nohuman <- rtemis_step1(input_tbl = output_decipher_deletion,
-                                             tag_variant = 'deletion',
-                                             vector_features = vector_no_human_control,
-                                             tag_features <- 'no_human',
-                                             input_prior = 'hs',
-                                             nc = 23,
-                                             input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
-
-bayesian_decipher_dup_nohuman <- rtemis_step1(input_tbl = output_decipher_duplication,
-                                              tag_variant = 'duplication',
-                                              vector_features = vector_no_human_control,
-                                              tag_features <- 'no_human',
-                                              input_prior = 'hs',
-                                              nc = 23,
-                                              input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
-
-
+# bayesian_clinvar_del_nohuman <- rtemis_step1(input_tbl = output_clinvar_deletion,
+#                                              tag_variant = 'deletion',
+#                                              vector_features = vector_no_human_control,
+#                                              tag_features <- 'no_human',
+#                                              input_prior = 'hs',
+#                                              nc = 23,
+#                                              input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
+# 
+# 
+# bayesian_decipher_del_nohuman <- rtemis_step1(input_tbl = output_decipher_deletion,
+#                                              tag_variant = 'deletion',
+#                                              vector_features = vector_no_human_control,
+#                                              tag_features <- 'no_human',
+#                                              input_prior = 'hs',
+#                                              nc = 23,
+#                                              input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
+# 
+# bayesian_decipher_dup_nohuman <- rtemis_step1(input_tbl = output_decipher_duplication,
+#                                               tag_variant = 'duplication',
+#                                               vector_features = vector_no_human_control,
+#                                               tag_features <- 'no_human',
+#                                               input_prior = 'hs',
+#                                               nc = 23,
+#                                               input_hyper = tibble(trees = 500, depth = 2, min_n = 1))
+# 
+# 
 
 # 
 # 
@@ -1725,7 +1660,7 @@ bayesian_decipher_dup_nohuman <- rtemis_step1(input_tbl = output_decipher_duplic
 
 tmp_decipher_del_setting_general <- check_cnv_v2(bind_rows(input_check_cnv_del_pathogenic_decipher,
                                                            input_check_cnv_del_benign %>%
-                                                            filter(!id_tmp %in% remove_from_clinvar_to_decipher_and_ind_del)))
+                                                            filter(!id_tmp %in% remove_from_clinvar_to_decipher_and_ind_del)) %>% select(-id))
 
 tmp_clinvar_del_setting_general <- check_cnv_v2(bind_rows(input_check_cnv_del_pathogenic_clinvar,
                                                            input_check_cnv_del_benign) %>% select(-id))
@@ -1799,9 +1734,8 @@ clinvar_setting_4 <- tmp_clinvar_del_setting_general %>%
 
 # Benchmark analysis-------------------
 
-# ClinVar OMIM------------------------------------------------------------------------------
-
-result_clinvar_del_omim <- get_results(output_clinvar_omim_deletion, 'DEL', 'ClinVar - OMIM genes')
+# test55 <-  predict_chrom_aware_rtemis(bayesian_decipher_del_nohuman, output_clinvar_deletion, 'deletion', 'unbiased approach')
+# test56 <-  predict_chrom_aware_rtemis(bayesian_decipher_dup_nohuman, output_clinvar_duplication, 'duplication', 'unbiased approach')
 
 # ClinVar ------------------------------------------------------------------------------
 
@@ -1860,94 +1794,148 @@ toc()
 
 # bancco_df <- read_tsv('bancco_results/file_results_BANCCO_2022_05_31.tsv') %>%
 #   mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
-# 
-# bancco_old <- read_tsv('bancco_results/file_results_BANCCO.tsv', col_names = c('c1', 'c2', 'c3', 'c4')) %>%
-#   filter(str_detect(c4, 'deletion - bayesian - human_no_control'))
-# 
-# bancco_old %>%
-#   ggplot(aes(c2)) +
-#     geom_density(aes(fill = X5))
-#   
-# bancco_old %>%
-#   mutate(diff = c2 - c3)
-# 
-# summary(as.numeric(bancco_old$c1))
-# summary(bancco_old$c2)
-# summary(bancco_old$c3)
-# 
-# bancco_df %>% count(tag)
 
-# Description of the number of CNVs across athogeninc / benign, separately for deletions / duplications
-# Answer: 9743 DEL + 10449 DUP
-
-# # In case we have it: distribution lengths for pathogeninc / benign, separately for deletions / duplications
-# We don't have length information on the output
-
-#  AUROC and PR values on the global sets for CNVscore and the 3 naive models (in case we have it)
+bancco_decipher <- read_tsv('bancco_results/file_results_BANCCO_2022_06_04.tsv') %>%
+  mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
 
 
-bancco_df %>%
-  group_by(tag) %>%
-  mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
-  roc_auc(clinical, .pred_pathogenic) %>%
-  rename(auroc = .estimate) %>%
-  select(tag, auroc) %>%
-  left_join(
-    
-    
-    bancco_df %>%
-      group_by(tag) %>%
-      mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
-      pr_auc(clinical, .pred_pathogenic) %>%
-      rename(aupr = .estimate) %>%
-      select(tag, aupr),
-
-   by = 'tag' 
-  )
 
 
+
+bancco_del_decipher_rel <- get_reliability_score_mid(ref_quantiles_decipher_del, bancco_decipher %>% filter(str_detect(tag, 'deletion - decipher - bayesian - unbiased')))
+bancco_dup_decipher_rel <- get_reliability_score_mid(ref_quantiles_decipher_dup, bancco_decipher %>% filter(str_detect(tag, 'duplication - decipher - bayesian - unbiased')))
 
 bancco_del_rel <- get_reliability_score_mid(ref_quantiles, bancco_df %>% filter(str_detect(tag, 'deletion - bayesian - unbiased')))
 bancco_dup_rel <- get_reliability_score_mid(ref_quantiles_dup, bancco_df %>% filter(str_detect(tag, 'duplication - bayesian - unbiased')))
 
 
-bancco_df %>% filter(str_detect(tag, 'deletion - bayesian - unbiased')) %>%
-  
+bancco_decipher2 <- bancco_decipher %>%
+  filter(str_detect(tag, 'unbiased')) %>%
+  mutate(tag2 = ifelse(str_detect(tag, 'deletion'), 'Deletion', 'Duplication')) %>%
+  mutate(tag = ifelse(str_detect(tag, 'decipher'), 'CNVscore trained on DECIPHER',
+                      'CNVscore trained on ClinVar'))
 
-bancco_df %>% filter(str_detect(tag, 'deletion - bayesian - unbiased')) %>%
-  ggplot(aes(.pred_pathogenic)) +
-    geom_density(aes(fill = clinical), alpha = 0.4) +
+n_bancco_deletions_pathogenic <- bancco_decipher2 %>% filter(tag2 == 'Deletion', str_detect(tag, 'ClinVar')) %>% count(clinical) %>% filter(clinical == 'pathogenic') %>% pull(n) %>% format(big.mark = ',')
+n_bancco_deletions_benign <- bancco_decipher2 %>% filter(tag2 == 'Deletion', str_detect(tag, 'ClinVar')) %>% count(clinical) %>% filter(clinical == 'benign') %>% pull(n) %>% format(big.mark = ',')
+n_bancco_duplications_pathogenic <- bancco_decipher2 %>% filter(tag2 == 'Duplication', str_detect(tag, 'ClinVar')) %>% count(clinical) %>% filter(clinical == 'pathogenic') %>% pull(n) %>% format(big.mark = ',')
+n_bancco_duplications_benign <- bancco_decipher2 %>% filter(tag2 == 'Duplication', str_detect(tag, 'ClinVar')) %>% count(clinical) %>% filter(clinical == 'benign') %>% pull(n) %>% format(big.mark = ',')
+
+
+p1_bancco <- bancco_decipher2 %>%
+  filter(tag2 == 'Deletion') %>%
+  group_by(tag, tag2) %>%
+  roc_curve(clinical, .pred_pathogenic) %>%
+  ggplot(aes(1 - specificity, sensitivity)) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
+  theme_roc() +
+  theme(legend.title = element_blank(), legend.position = 'top')
+        # plot.title = element_text(size = 10)) +
+  # ggtitle(glue('Bancco dataset ({n_bancco_deletions_pathogenic} pathogenic and {n_bancco_deletions_benign} non-pathogenic deletions)'))
+
+
+p11_bancco <- bancco_decipher2 %>%
+  filter(tag2 == 'Deletion') %>%
+  group_by(tag, tag2) %>%
+  pr_curve(clinical, .pred_pathogenic) %>%
+  ggplot(aes(recall, precision)) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
+  # ggtitle(paste0(str_remove(x[[8]], pattern = "(\\d{1}).*"), ' (merged:', x[[12]], ')', '')) +
+  theme_pr() +
+  theme(legend.title = element_blank(), legend.position = 'top')
+  # facet_wrap(vars(tag2), nrow = 2)
+
+p111_bancco <- bancco_del_decipher_rel %>% 
+  count(reliability_score) %>% 
+  mutate(perc = n / sum(n)) %>%
+  mutate(tag = 'CNVscore trained on DECIPHER') %>%
+  bind_rows(
+    
+    bancco_del_rel %>% 
+      count(reliability_score) %>% 
+      mutate(perc = n / sum(n)) %>%
+      mutate(tag = 'CNVscore trained on ClinVar')
+  ) %>%
+  mutate(reliability_score = case_when(
+    reliability_score == 1 ~ 'Lowly uncertain',
+    reliability_score == 2 ~ 'Moderately uncertain',
+    reliability_score == 3 ~ 'Highly uncertain'
+  )) %>%
+  mutate(reliability_score = factor(reliability_score, levels = c('Highly uncertain', 'Moderately uncertain', 'Lowly uncertain'))) %>%
+  ggplot(aes(tag, perc)) +
+  geom_col(aes(fill = reliability_score), color = 'black') +
+  scale_y_continuous(label = percent) +
+  # scale_fill_brewer(palette = 'Set1') +
+  scale_fill_brewer(palette = 'Greens', direction = -1) +
+  # scale_fill_manual(values = c('#F8766D', '#619CFF', '#00BA38')) +
   theme_minimal() +
-  labs(title = 'Bancco - 1152 pathogenic and 8591 benign deletions')
-  count(clinical)
-  count(tag)
+  labs(fill = 'Uncertainty level', y = '% of CNVs across uncertainty CNVscore levels', x = '') +
+  theme(axis.text.x = element_text(size = 9))
 
-  
 
-bancco_del_rel %>%
-  mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
-  group_by(reliability_score) %>%
+p2_bancco <- bancco_decipher2 %>%
+  filter(tag2 == 'Duplication') %>%
+  group_by(tag, tag2) %>%
+  roc_curve(clinical, .pred_pathogenic) %>%
+  ggplot(aes(1 - specificity, sensitivity)) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
+  theme_roc() +
+  theme(legend.title = element_blank(), legend.position = 'top')
+  # ggtitle(glue('Bancco dataset ({n_bancco_duplications_pathogenic} pathogenic and {n_bancco_duplications_benign} non-pathogenic duplications)'))
+
+
+p22_bancco <- bancco_decipher2 %>%
+  filter(tag2 == 'Duplication') %>%
+  group_by(tag, tag2) %>%
+  pr_curve(clinical, .pred_pathogenic) %>%
+  ggplot(aes(recall, precision)) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
+  # ggtitle(paste0(str_remove(x[[8]], pattern = "(\\d{1}).*"), ' (merged:', x[[12]], ')', '')) +
+  theme_pr() +
+  theme(legend.title = element_blank(), legend.position = 'top')
+# facet_wrap(vars(tag2), nrow = 2)
+
+p222_bancco <- bancco_dup_decipher_rel %>% 
+  count(reliability_score) %>% 
+  mutate(perc = n / sum(n)) %>%
+  mutate(tag = 'CNVscore trained on DECIPHER') %>%
+  bind_rows(
+    
+    bancco_del_rel %>% 
+      count(reliability_score) %>% 
+      mutate(perc = n / sum(n)) %>%
+      mutate(tag = 'CNVscore trained on ClinVar')
+  ) %>%
+  mutate(reliability_score = case_when(
+    reliability_score == 1 ~ 'Lowly uncertain',
+    reliability_score == 2 ~ 'Moderately uncertain',
+    reliability_score == 3 ~ 'Highly uncertain'
+  )) %>%
+  mutate(reliability_score = factor(reliability_score, levels = c('Highly uncertain', 'Moderately uncertain', 'Lowly uncertain'))) %>%
+  ggplot(aes(tag, perc)) +
+  geom_col(aes(fill = reliability_score), color = 'black') +
+  scale_y_continuous(label = percent) +
+  # scale_fill_brewer(palette = 'Set1') +
+  scale_fill_brewer(palette = 'Greens', direction = -1) +
+  # scale_fill_manual(values = c('#F8766D', '#619CFF', '#00BA38')) +
+  theme_minimal() +
+  labs(fill = 'Uncertainty level', y = '% of CNVs across uncertainty CNVscore levels', x = '') +
+  theme(axis.text.x = element_text(size = 9))
+
+
+p111_bancco + p1_bancco + p11_bancco 
+p222_bancco + p2_bancco + p22_bancco 
+
+result_bancco_auroc <- bancco_decipher2 %>%
+  group_by(tag, tag2) %>%
   roc_auc(clinical, .pred_pathogenic) %>%
-  select(reliability_score, .estimate) %>%
-  rename(auroc = .estimate) %>%
-  right_join(bancco_del_rel %>% count(reliability_score) %>%
-               mutate(perc = n / sum(n)), by = 'reliability_score') %>%
-  bind_cols(bancco_del_rel %>%
-               mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
-               roc_auc(clinical, .pred_pathogenic) %>% rename(auroc_total = .estimate) %>% select(auroc_total))
+  rename(auroc_total = .estimate) %>%
+  select(tag2, auroc_total)
 
-bancco_dup_rel %>%
-  mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
-  group_by(reliability_score) %>%
-  roc_auc(clinical, .pred_pathogenic) %>%
-  select(reliability_score, .estimate) %>%
-  rename(auroc = .estimate) %>%
-  right_join(bancco_dup_rel %>% count(reliability_score) %>%
-               mutate(perc = n / sum(n)), by = 'reliability_score') %>%
-  bind_cols(bancco_dup_rel %>%
-              mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
-              roc_auc(clinical, .pred_pathogenic) %>% rename(auroc_total = .estimate) %>% select(auroc_total))
-
+result_bancco_prauc <- bancco_decipher2 %>%
+  group_by(tag, tag2) %>%
+  pr_auc(clinical, .pred_pathogenic) %>%
+  rename(aupr_total = .estimate) %>%
+  select(tag2, aupr_total)
 
 
 # Send to googlesheet ------------------------------------------------------------------------------
@@ -2069,8 +2057,8 @@ to_googlesheet(result_clinvar_dup) %>%
 generate_table_rel(result_clinvar_del, res_df, tag = 'ClinVar')
 generate_table_rel(result_decipher_del, ref_sd_decipher_del_real, tag = 'DECIPHER')
 
-generate_table_rel(result_clinvar_dup, res_df_dup, tag = 'ClinVar')
-generate_table_rel(result_decipher_dup, ref_sd_decipher_dup_real, tag = 'DECIPHER')
+generate_table_rel(result_clinvar_dup, res_df_dup, tag = 'ClinVar', tag2 = 'Duplication')
+generate_table_rel(result_decipher_dup, ref_sd_decipher_dup_real, tag = 'DECIPHER', tag2 = 'Duplication')
 
 
 
@@ -2144,7 +2132,7 @@ ref_sd_scenario_4_clinvar <- predict_chrom_aware_rtemis(bayesian_clinvar_del_noh
 ref_sd_clinvar_dup <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_nohuman, output_clinvar_duplication, 'duplication', 'unbiased approach')
 ref_sd_decipher_dup <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_nohuman, output_decipher_duplication, 'duplication', 'unbiased approach')
 
-
+# check 
 ref_sd_clinvar_del_real <- get_reliability_score_mid(ref_quantiles, ref_sd_clinvar_del[[3]])
 ref_sd_clinvarind_del_real <- get_reliability_score_mid(ref_quantiles, ref_sd_clinvarind_del[[3]])
 ref_sd_decipher_del_real <- get_reliability_score_mid(ref_quantiles, ref_sd_decipher_del[[3]])
@@ -2262,212 +2250,6 @@ plot_reli1 + plot_reli2
 plot_reli3
 
 
-# Figure VUS-DECIPHER and VUS-ClinVar ------------------------------------------------------------------------------
-
-vus_decipher <- read_tsv('/data-cbl/decipher_data/decipher-cnvs-grch37-2020-12-06.txt', skip = 1)
-
-vus_decipher <- vus_decipher %>% 
-  rename(id = `# patient_id`, clinical = pathogenicity) %>%
-  # select(id, clinical2, contribution) %>%
-  filter(clinical == 'Uncertain') %>%
-  # filter(clinical %in% c('Pathogenic', 'Unknown', 'Likely pathogenic')) %>%
-  mutate(id = as.character(id)) %>%
-  rename(chrom = chr, id_tmp = id) %>%
-  filter(variant_class == 'Deletion') %>%
-  filter(inheritance %in% 'De novo') %>%
-  filter(genotype == 'Heterozygous') %>%
-  mutate(variant_class = tolower(variant_class)) %>%
-  mutate(source = 'clinvar') %>%
-  mutate(length_cnv = end - start + 1) %>%
-  select(chrom, start, end, variant_class, clinical, source, length_cnv) %>%
-  mutate(id_tmp = row_number())
-
- 
-# 0
-  vus_decipher_remove_overlap_ids <- vus_decipher %>% 
-  bed_coverage(problematic_regions) %>% 
-  select(id_tmp, .frac) %>% filter(.frac >= 0.3) %>% pull(id_tmp)
-  
-  vus_decipher <- vus_decipher %>% filter(!id_tmp %in% vus_decipher_remove_overlap_ids)
-  
-# 1
-  vus_decipher_remove_split_ids <- report_split_cnvs(vus_decipher)
-
-  vus_decipher <- vus_decipher %>% filter(id_tmp %in% vus_decipher_remove_split_ids)
-# 2. Remove identical CNVs------------------------------------------------------------------------------
-
-  vus_decipher <- vus_decipher %>%
-  distinct(chrom, start, end, clinical, .keep_all = TRUE)
-# 3. Reciprocal overlap------------------------------------------------------------------------------
-
-
-  vus_decipher_remove_reciprocal_ids <- reciprocal_overlap(vus_decipher)
-  
-  vus_decipher <- vus_decipher %>% filter(!id_tmp %in% vus_decipher_remove_reciprocal_ids)
-  
-# Check pathogenic - benign overlap ------------------------------------------------------------------------------
-
-  vus_decipher_remove_second_overlap_ids <- overlap_benign_pathogenic(vus_decipher, input_check_cnv_del_benign)
-  
-  vus_decipher <-  vus_decipher %>% filter(!id_tmp %in% vus_decipher_remove_second_overlap_ids$id_tmp_patho)
-  
-# Matching by length------------------------------------------------------------------------------
-  
-  vus_decipher_before_match <- vus_decipher %>%
-    mutate(clinical = 'pathogenic') %>%
-    bind_rows(input_check_cnv_del_benign %>% 
-                filter(!id_tmp %in% vus_decipher_remove_second_overlap_ids$id_tmp_benign) %>%
-                select(-LastEvaluated, -NumberSubmitters))
-
-vus_decipher_match_deletion <- matching_length(bin_length = 100, vus_decipher_before_match)
-
-vus_decipher_annot <- check_cnv_v2(vus_decipher_match_deletion %>% select(-id))
-
-  
-vus_decipher_scores <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, vus_decipher_annot, 'deletion', 'unbiased approach', 
-                                                  only_table = TRUE)
-
-
-ref_sd_decipher_uncertain <- get_reliability_score_mid(ref_quantiles, vus_decipher_scores %>% filter(clinical == 'pathogenic'))
-
-vus_decipher_results <- ref_sd_decipher_uncertain %>% count(reliability_score) %>%
-  # group_by(clinical) %>%
-  # mutate(perc = n / sum(n)) %>%
-  mutate(clinical2 = 'VOUS') %>%
-  select(reliability_score, clinical2, n)
-
-
-# ClinVar
-
-vus_clinvar <- clinvar_stacked_plot %>%
-  filter(clinical %in% c('uncertain significance')) %>%
-  rename(clinical2 = clinical) %>%
-  mutate(clinical = 'pathogenic') %>%
-  mutate(id_tmp = row_number())
-
-
-  # 0
-vus_clinvar_remove_overlap_ids <- vus_clinvar %>% 
-  bed_coverage(problematic_regions) %>% 
-  select(id_tmp, .frac) %>% filter(.frac >= 0.3) %>% pull(id_tmp)
-
-vus_clinvar <- vus_clinvar %>% filter(!id_tmp %in% vus_decipher_remove_overlap_ids)
-
-# 1
-vus_clinvar_remove_split_ids <- report_split_cnvs(vus_clinvar)
-
-vus_clinvar <- vus_clinvar %>% filter(id_tmp %in% vus_clinvar_remove_split_ids)
-
-# 2
-vus_clinvar <- vus_clinvar %>%
-  distinct(chrom, start, end, clinical, .keep_all = TRUE)
-
-# 3
-
-vus_clinvar_remove_reciprocal_ids <- reciprocal_overlap(vus_clinvar)
-
-vus_clinvar <- vus_clinvar %>% filter(!id_tmp %in% vus_clinvar_remove_reciprocal_ids)
-
-
-
-# 4
-
-vus_clinvar_remove_second_overlap_ids <- overlap_benign_pathogenic(vus_clinvar, input_check_cnv_del_benign)
-
-vus_clinvar <-  vus_clinvar %>% filter(!id_tmp %in% vus_clinvar_remove_second_overlap_ids$id_tmp_patho)
-
-# 5
-
-vus_clinvar_before_match <- vus_clinvar %>%
-  mutate(clinical = 'pathogenic') %>%
-  bind_rows(input_check_cnv_del_benign %>% 
-              filter(!id_tmp %in% vus_clinvar_remove_second_overlap_ids$id_tmp_benign) %>%
-              select(-LastEvaluated, -NumberSubmitters))
-
-# 6
-
-vus_clinvar_match_deletion <- matching_length(bin_length = 100, vus_clinvar_before_match %>% mutate(id_tmp = row_number()))
-
-vus_clinvar_annot <- check_cnv_v2(vus_clinvar_match_deletion %>% select(-id) %>%
-                                    filter(clinical == 'pathogenic'))
-
-# 7
-
-
-vus_clinvar_scores <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, vus_clinvar_annot, 'deletion', 'unbiased approach', 
-                                                  only_table = TRUE)
-
-
-ref_sd_clinvar_uncertain <- get_reliability_score_mid(ref_quantiles, vus_clinvar_scores)
-
-vus_clinvar_results <- ref_sd_clinvar_uncertain %>% count(reliability_score) %>%
-  # group_by(clinical) %>%
-  # mutate(perc = n / sum(n)) %>%
-  mutate(clinical2 = 'VOUS') %>%
-  select(reliability_score, clinical2, n)
-
-# Final merge
-
-bind_rows(
-vus_decipher_results %>% rename(clinical = clinical2) %>% mutate(clinical = 'DECIPHER - VOUS') %>% mutate(tag = 'DECIPHER'),
-vus_clinvar_results %>% rename(clinical = clinical2) %>% mutate(clinical = 'ClinVar - VOUS') %>% mutate(tag = 'ClinVar'),
-ref_sd_clinvar_del_real %>% count(clinical, reliability_score) %>% mutate(clinical = paste('ClinVar -', clinical)) %>% mutate(tag = 'ClinVar'), 
-ref_sd_decipher_del_real %>% count(clinical, reliability_score) %>% mutate(clinical = paste('DECIPHER -', clinical)) %>% mutate(tag = 'DECIPHER')
-) %>%
-  group_by(clinical) %>%
-  mutate(perc = n / sum(n)) %>%
-  mutate(reliability_score = factor(reliability_score, levels = c('3', '2', '1'))) %>%
-  ggplot(aes(clinical, perc, group = reliability_score)) +
-  geom_col(aes(fill = as.factor(reliability_score)), color = 'black') +
-  scale_y_continuous(label = percent) +
-  labs(x = 'Clinical assessment', y = 'Percentage', fill = 'Uncertainty level') +
-  facet_wrap(vars(tag), scales = 'free') +
-  geom_text(aes(label = paste0(100*round(perc, 2), '% ', '(', n, ')' )),
-            size = 3, position = position_stack(vjust = 0.5)) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, vjust = 0.8))
-
-tmp_id_decipher_clinical <- read_tsv('/data-cbl/decipher_data/decipher-cnvs-grch37-2020-12-06.txt', skip = 1)
-
-tmp_id_decipher_clinical <- tmp_id_decipher_clinical %>% 
-  rename(id = `# patient_id`, clinical2 = pathogenicity) %>%
-  select(id, clinical2, contribution) %>%
-  filter(clinical2 %in% c('Pathogenic', 'Unknown', 'Likely pathogenic')) %>%
-  mutate(id = as.character(id))
-
-
-output_decipher_deletion %>% select(id.x, id) %>% 
-  left_join(tmp_id_decipher_clinical, by = c('id.x' = 'id')) %>%
-  distinct() %>%
-  right_join(ref_sd_decipher_del_real %>% select(id, reliability_score), by = 'id') %>%
-  mutate(clinical2 = if_else(is.na(clinical2), 'Benign', clinical2)) %>%
-  mutate(clinical2 = factor(clinical2, levels = c('Benign', 'Pathogenic', 'Likely pathogenic', 'Unknown'))) %>%
-  count(reliability_score, clinical2) %>%
-  bind_rows(vus_decipher_results) %>%
-  group_by(clinical2) %>%
-  mutate(perc = n / sum(n)) %>%
-  mutate(clinical2 = factor(clinical2, levels = c('Pathogenic', 'Likely pathogenic', 'Unknown', 'VOUS', 'Benign'))) %>%
-  mutate(reliability_score = factor(reliability_score, levels = c('3', '2', '1'))) %>%
-  ggplot(aes(clinical2, perc)) +
-  geom_col(aes(fill = as.factor(reliability_score)), color = 'black') +
-  scale_y_continuous(label = percent) +
-  labs(x = 'Clinical assessment', y = 'Percentage', fill = 'Uncertainty level') +
-  theme_minimal()
-
-output_decipher_deletion %>% select(id.x, id) %>% 
-  left_join(tmp_id_decipher_clinical, by = c('id.x' = 'id')) %>%
-  distinct() %>%
-  right_join(ref_sd_decipher_del_real %>% select(id, reliability_score), by = 'id') %>%
-  mutate(clinical2 = if_else(is.na(clinical2), 'Benign', clinical2)) %>%
-  mutate(clinical2 = factor(clinical2, levels = c('Benign', 'Pathogenic', 'Likely pathogenic', 'Unknown'))) %>%
-  filter(!is.na(contribution)) %>%
-  count(reliability_score, contribution) %>%
-  group_by(contribution) %>%
-  mutate(perc = n / sum(n)) %>%
-  ggplot(aes(contribution, perc)) +
-    geom_col(aes(fill = as.factor(reliability_score))) +
-    theme_minimal()
-
 
 # Write models ------------------------------------------------------------------------------
 
@@ -2478,6 +2260,10 @@ output_decipher_deletion %>% select(id.x, id) %>%
 # saveRDS(bayesian_clinvar_del_both, 'api/bayesian_clinvar_del_both.RData')
 # saveRDS(bayesian_clinvar_dup_both, 'bayesian_clinvar_dup_both.RData')
 # saveRDS(bayesian_clinvar_del_omim, 'bayesian_clinvar_del_omim.RData')
+
+# saveRDS(bayesian_decipher_del_nohuman, 'bayesian_decipher_del_nohuman.RData')
+# saveRDS(bayesian_decipher_dup_nohuman, 'bayesian_decipher_dup_nohuman.RData')
+
 
 # TSNE ------------------------------------------------------------------------------
 
@@ -2941,7 +2727,7 @@ plot_rates_clinvarind_unbiased <- liftOver(tmp1, from_hg38_to_hg19) %>%
   select(-c('chrom', 'start', 'end'))
 
 
-# Figure N. Comparison gbm and Bayesian approach ------------------------------------------------------------------------------
+# supp. figure 3 . Comparison gbm and Bayesian approach ------------------------------------------------------------------------------
 
 comp_gbm_bay1 <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, output_clinvar_deletion, 'deletion', 'unbiased approach')
 
@@ -2957,7 +2743,7 @@ p_comp_gbm_bay_clinvar <- comp_gbm_bay1$tmp_roc_curve %>%
   mutate(tag = str_replace(tag, 'deletion - bayesian - unbiased approach - ', 'CNVscore - ')) %>%
   mutate(tag = str_replace(tag, 'deletion - gbm - unbiased_approach', 'Gradient boosting model')) %>%
   ggplot(aes(1 - specificity, sensitivity)) +
-  geom_path(aes(group = tag, color = tag),  show.legend = TRUE) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
   theme_roc() +
   theme(legend.text=element_text(size=12), legend.title = element_text(size = 15),
         legend.position="top") +
@@ -2968,7 +2754,7 @@ p_comp_gbm_bay_clinvar <- comp_gbm_bay1$tmp_roc_curve %>%
   mutate(tag = str_replace(tag, 'deletion - bayesian - unbiased approach - ', 'CNVscore - ')) %>%
   mutate(tag = str_replace(tag, 'deletion - gbm - unbiased_approach', 'Gradient boosting model')) %>%
   ggplot(aes(recall, precision)) +
-  geom_path(aes(group = tag, color = tag),  show.legend = TRUE) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
   labs(color = 'Model') +
   theme_pr() +
   theme(legend.text=element_text(size=12), legend.title = element_text(size = 15),
@@ -2979,7 +2765,7 @@ p_comp_gbm_bay_decipher <- comp_gbm_bay3$tmp_roc_curve %>%
   mutate(tag = str_replace(tag, 'deletion - bayesian - unbiased approach - ', 'CNVscore - ')) %>%
   mutate(tag = str_replace(tag, 'deletion - gbm - unbiased_approach', 'Gradient boosting model')) %>%
 ggplot(aes(1 - specificity, sensitivity)) +
-  geom_path(aes(group = tag, color = tag),  show.legend = TRUE) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
   # ggtitle('Comparison gradient boosting and Bayesian approach - DECIPHER dataset') +
   theme_roc() +
   labs(color = 'Model') +
@@ -2990,7 +2776,7 @@ ggplot(aes(1 - specificity, sensitivity)) +
   mutate(tag = str_replace(tag, 'deletion - bayesian - unbiased approach - ', 'CNVscore - ')) %>%
   mutate(tag = str_replace(tag, 'deletion - gbm - unbiased_approach', 'Gradient boosting model')) %>%
   ggplot(aes(recall, precision)) +
-  geom_path(aes(group = tag, color = tag),  show.legend = TRUE) +
+  geom_path(aes(group = tag, color = tag),  show.legend = TRUE, size = 1.5) +
   labs(color = 'Model') +
   theme_pr() +
   theme(legend.text=element_text(size=12), legend.title = element_text(size = 15),
@@ -3013,7 +2799,8 @@ p2_comp_gbm_bay_clinvar <- tibble('GBM model' = comp_gbm_bay1$tmp_predicted$.pre
   theme(legend.position="top")
   
 
-
+p_comp_gbm_bay_clinvar
+p_comp_gbm_bay_decipher
 
 # Figure N. PCA ------------------------------------------------------------------------------
 
@@ -5384,16 +5171,24 @@ split_score <- 10
 split_residuals <- 3
 
 
+
+
+
 # Deletion CNVs----------
+
+ref_sd_clinvar_del <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, output_clinvar_deletion, 'deletion', 'unbiased approach')
+ref_sd_clinvar_dup <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_nohuman, output_clinvar_duplication, 'duplication', 'unbiased approach')
+
+
 trendline_clinvar <- gam(sd ~ s(.pred_pathogenic, bs="cr"), 
-                         data= df_for_uncertainty[[3]])
+                         data= ref_sd_clinvar_del[[3]])
 
 
-res_df <- df_for_uncertainty[[3]] %>%
+res_df <- ref_sd_clinvar_del[[3]] %>%
   mutate(gam_residuals = residuals(trendline_clinvar)) %>%
-  mutate(score_interval = ntile(.pred_pathogenic, n = split_score)) %>%
+  mutate(score_interval = ntile(.pred_pathogenic, n = 10)) %>%
   group_by(score_interval) %>%
-  mutate(reliability_score = ntile(gam_residuals, split_residuals)) %>%
+  mutate(reliability_score = ntile(gam_residuals, 3)) %>%
   ungroup()
 
 
@@ -5414,13 +5209,13 @@ split_score_dup <- 3
 # Duplication CNVs----------
 
 trendline_clinvar_dup <- gam(sd ~ s(.pred_pathogenic, bs="cr"), 
-                         data= tmp_dup_clinvar[[3]])
+                         data= ref_sd_clinvar_dup[[3]])
 
-res_df_dup <- tmp_dup_clinvar[[3]] %>%
+res_df_dup <- ref_sd_clinvar_dup[[3]] %>%
   mutate(gam_residuals = residuals(trendline_clinvar_dup)) %>%
-  mutate(score_interval = ntile(.pred_pathogenic, n = split_score_dup)) %>%
+  mutate(score_interval = ntile(.pred_pathogenic, n = 3)) %>%
   group_by(score_interval) %>%
-  mutate(reliability_score = ntile(gam_residuals, split_residuals)) %>%
+  mutate(reliability_score = ntile(gam_residuals, 3)) %>%
   ungroup()
 
 
@@ -5453,11 +5248,11 @@ ref_quantiles %>% select(.pred_pathogenic, reliability_score) %>% correlate()
 res_df %>%
   mutate(reliability_score = factor(reliability_score)) %>%
   mutate(reliability_score = case_when(
-    reliability_score == 1 ~ 'Low',
-    reliability_score == 2 ~ 'Medium',
-    reliability_score == 3 ~ 'High'
+    reliability_score == 1 ~ 'Lowly uncertain',
+    reliability_score == 2 ~ 'Moderately uncertain',
+    reliability_score == 3 ~ 'Highly uncertain'
   )) %>%
-  mutate(reliability_score = factor(reliability_score, levels = c('High','Medium','Low'))) %>%
+  mutate(reliability_score = factor(reliability_score, levels = c('Highly uncertain','Moderately uncertain','Lowly uncertain'))) %>%
 ggplot(aes(.pred_pathogenic, sd)) +
 geom_point(aes(fill = reliability_score), shape = 21, alpha = 0.6) +
   scale_fill_brewer(palette = 'Set1') +
@@ -5470,11 +5265,11 @@ geom_point(aes(fill = reliability_score), shape = 21, alpha = 0.6) +
 res_df_dup %>%
   mutate(reliability_score = factor(reliability_score)) %>%
   mutate(reliability_score = case_when(
-    reliability_score == 1 ~ 'Low',
-    reliability_score == 2 ~ 'Medium',
-    reliability_score == 3 ~ 'High'
+    reliability_score == 1 ~ 'Lowly uncertain',
+    reliability_score == 2 ~ 'Moderately uncertain',
+    reliability_score == 3 ~ 'Highly uncertain'
   )) %>%
-  mutate(reliability_score = factor(reliability_score, levels = c('High','Medium','Low'))) %>%
+  mutate(reliability_score = factor(reliability_score, levels = c('Highly uncertain','Moderately uncertain','Lowly uncertain'))) %>%
   ggplot(aes(.pred_pathogenic, sd)) +
   geom_point(aes(fill = reliability_score), shape = 21, alpha = 0.6) +
   scale_fill_brewer(palette = 'Set1') +
@@ -6692,7 +6487,6 @@ ggsave(glue("figures/{current_date}/fig_N_comparison_datasets_strvctvre_reliabil
 # ------------------------------------------------------------------------------
 # COMPARISON DECIPHER - ClinVar - DECIPHER (only patho) models
 # ------------------------------------------------------------------------------
-library(DiagrammeR)
 
 # Deletion CNVs
 
@@ -7648,3 +7442,390 @@ cytoband_result_deletions %>%
 # ClinVar special V ------------------------------------------------------------------------------
 
 # result_clinvar_setting_5 <- get_results(clinvar_setting_5, 'DEL', 'ClinVar - patho (>0 omim) - benign (>0 omim)')
+# ClinVar OMIM------------------------------------------------------------------------------
+
+# result_clinvar_del_omim <- get_results(output_clinvar_omim_deletion, 'DEL', 'ClinVar - OMIM genes')
+
+# tibble(name = c('Supp Table 1. Reference variants databases',
+#                 'Supp Table 2. Summary of the tools used in benchmarks',
+#                 'Supp Table 3. List of unbiased featues',
+#                 'Supp Table 4. List of knowledge-based featues',
+#                 # 'Supp Table 5. Nº CNVs across chromosomes - Training dataset (duplications)',
+#                 'Supp Table 5. Nº pathogenic and benign CNVs across benchmark datasets',
+#                 'Supp Table 6. Results - ClinVar DEL',
+#                 'Supp Table 7. Results - ClinVar DEL - Reliability scores',
+#                 'Supp Table 8. Results - ClinVar DUP',
+#                 'Supp Table 9. Results - ClinVar Ind. (First evaluation since Jan 2021)',
+#                 'Supp Table 10. Results - DECIPHER DEL',
+#                 'Supp Table 11. Results - DECIPHER DEL - Reliability scores',
+#                 'Supp Table 12. Results - DECIPHER DUP',
+#                 'Supp Table 13. Results - DECIPHER Scenario #1 (Pathogenic CNVs mapping 0 OMIM genes - Benign CNVs mapping >0 OMIM genes)',
+#                 'Supp Table 14. Results - DECIPHER Scenario #2 (Pathogenic CNVs mapping 0 OMIM genes - Benign CNVs mapping 0 OMIM genes))',
+#                 'Supp Table 15. Results - DECIPHER Scenario #3 (Pathogenic CNVs mapping 0 protein-coding genes - Benign CNVs mapping 0 protein-coding genes)',
+#                 'Supp Table 16. Results - DECIPHER Scenario #4 (Pathogenic CNVs mapping >0 OMIM genes - Benign CNVs mapping >0 OMIM genes)',
+#                 'Supp Table 18')) %>%
+#   sheet_write(google_calc_results, sheet = "index")
+# Figure VUS-DECIPHER and VUS-ClinVar ------------------------------------------------------------------------------
+
+# vus_decipher <- read_tsv('/data-cbl/decipher_data/decipher-cnvs-grch37-2020-12-06.txt', skip = 1)
+# 
+# vus_decipher <- vus_decipher %>% 
+#   rename(id = `# patient_id`, clinical = pathogenicity) %>%
+#   # select(id, clinical2, contribution) %>%
+#   filter(clinical == 'Uncertain') %>%
+#   # filter(clinical %in% c('Pathogenic', 'Unknown', 'Likely pathogenic')) %>%
+#   mutate(id = as.character(id)) %>%
+#   rename(chrom = chr, id_tmp = id) %>%
+#   filter(variant_class == 'Deletion') %>%
+#   filter(inheritance %in% 'De novo') %>%
+#   filter(genotype == 'Heterozygous') %>%
+#   mutate(variant_class = tolower(variant_class)) %>%
+#   mutate(source = 'clinvar') %>%
+#   mutate(length_cnv = end - start + 1) %>%
+#   select(chrom, start, end, variant_class, clinical, source, length_cnv) %>%
+#   mutate(id_tmp = row_number())
+# 
+# 
+# # 0
+# vus_decipher_remove_overlap_ids <- vus_decipher %>% 
+#   bed_coverage(problematic_regions) %>% 
+#   select(id_tmp, .frac) %>% filter(.frac >= 0.3) %>% pull(id_tmp)
+# 
+# vus_decipher <- vus_decipher %>% filter(!id_tmp %in% vus_decipher_remove_overlap_ids)
+# 
+# # 1
+# vus_decipher_remove_split_ids <- report_split_cnvs(vus_decipher)
+# 
+# vus_decipher <- vus_decipher %>% filter(id_tmp %in% vus_decipher_remove_split_ids)
+# # 2. Remove identical CNVs------------------------------------------------------------------------------
+# 
+# vus_decipher <- vus_decipher %>%
+#   distinct(chrom, start, end, clinical, .keep_all = TRUE)
+# # 3. Reciprocal overlap------------------------------------------------------------------------------
+# 
+# 
+# vus_decipher_remove_reciprocal_ids <- reciprocal_overlap(vus_decipher)
+# 
+# vus_decipher <- vus_decipher %>% filter(!id_tmp %in% vus_decipher_remove_reciprocal_ids)
+# 
+# # Check pathogenic - benign overlap ------------------------------------------------------------------------------
+# 
+# vus_decipher_remove_second_overlap_ids <- overlap_benign_pathogenic(vus_decipher, input_check_cnv_del_benign)
+# 
+# vus_decipher <-  vus_decipher %>% filter(!id_tmp %in% vus_decipher_remove_second_overlap_ids$id_tmp_patho)
+# 
+# # Matching by length------------------------------------------------------------------------------
+# 
+# vus_decipher_before_match <- vus_decipher %>%
+#   mutate(clinical = 'pathogenic') %>%
+#   bind_rows(input_check_cnv_del_benign %>% 
+#               filter(!id_tmp %in% vus_decipher_remove_second_overlap_ids$id_tmp_benign) %>%
+#               select(-LastEvaluated, -NumberSubmitters))
+# 
+# vus_decipher_match_deletion <- matching_length(bin_length = 100, vus_decipher_before_match)
+# 
+# vus_decipher_annot <- check_cnv_v2(vus_decipher_match_deletion %>% select(-id))
+# 
+# 
+# vus_decipher_scores <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, vus_decipher_annot, 'deletion', 'unbiased approach', 
+#                                                   only_table = TRUE)
+# 
+# 
+# ref_sd_decipher_uncertain <- get_reliability_score_mid(ref_quantiles, vus_decipher_scores %>% filter(clinical == 'pathogenic'))
+# 
+# vus_decipher_results <- ref_sd_decipher_uncertain %>% count(reliability_score) %>%
+#   # group_by(clinical) %>%
+#   # mutate(perc = n / sum(n)) %>%
+#   mutate(clinical2 = 'VOUS') %>%
+#   select(reliability_score, clinical2, n)
+# 
+# 
+# # ClinVar
+# 
+# vus_clinvar <- clinvar_stacked_plot %>%
+#   filter(clinical %in% c('uncertain significance')) %>%
+#   rename(clinical2 = clinical) %>%
+#   mutate(clinical = 'pathogenic') %>%
+#   mutate(id_tmp = row_number())
+# 
+# 
+# # 0
+# vus_clinvar_remove_overlap_ids <- vus_clinvar %>% 
+#   bed_coverage(problematic_regions) %>% 
+#   select(id_tmp, .frac) %>% filter(.frac >= 0.3) %>% pull(id_tmp)
+# 
+# vus_clinvar <- vus_clinvar %>% filter(!id_tmp %in% vus_decipher_remove_overlap_ids)
+# 
+# # 1
+# vus_clinvar_remove_split_ids <- report_split_cnvs(vus_clinvar)
+# 
+# vus_clinvar <- vus_clinvar %>% filter(id_tmp %in% vus_clinvar_remove_split_ids)
+# 
+# # 2
+# vus_clinvar <- vus_clinvar %>%
+#   distinct(chrom, start, end, clinical, .keep_all = TRUE)
+# 
+# # 3
+# 
+# vus_clinvar_remove_reciprocal_ids <- reciprocal_overlap(vus_clinvar)
+# 
+# vus_clinvar <- vus_clinvar %>% filter(!id_tmp %in% vus_clinvar_remove_reciprocal_ids)
+# 
+# 
+# 
+# # 4
+# 
+# vus_clinvar_remove_second_overlap_ids <- overlap_benign_pathogenic(vus_clinvar, input_check_cnv_del_benign)
+# 
+# vus_clinvar <-  vus_clinvar %>% filter(!id_tmp %in% vus_clinvar_remove_second_overlap_ids$id_tmp_patho)
+# 
+# # 5
+# 
+# vus_clinvar_before_match <- vus_clinvar %>%
+#   mutate(clinical = 'pathogenic') %>%
+#   bind_rows(input_check_cnv_del_benign %>% 
+#               filter(!id_tmp %in% vus_clinvar_remove_second_overlap_ids$id_tmp_benign) %>%
+#               select(-LastEvaluated, -NumberSubmitters))
+# 
+# # 6
+# 
+# vus_clinvar_match_deletion <- matching_length(bin_length = 100, vus_clinvar_before_match %>% mutate(id_tmp = row_number()))
+# 
+# vus_clinvar_annot <- check_cnv_v2(vus_clinvar_match_deletion %>% select(-id) %>%
+#                                     filter(clinical == 'pathogenic'))
+# 
+# # 7
+# 
+# 
+# vus_clinvar_scores <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, vus_clinvar_annot, 'deletion', 'unbiased approach', 
+#                                                  only_table = TRUE)
+# 
+# 
+# ref_sd_clinvar_uncertain <- get_reliability_score_mid(ref_quantiles, vus_clinvar_scores)
+# 
+# vus_clinvar_results <- ref_sd_clinvar_uncertain %>% count(reliability_score) %>%
+#   # group_by(clinical) %>%
+#   # mutate(perc = n / sum(n)) %>%
+#   mutate(clinical2 = 'VOUS') %>%
+#   select(reliability_score, clinical2, n)
+# 
+# # Final merge
+# 
+# bind_rows(
+#   vus_decipher_results %>% rename(clinical = clinical2) %>% mutate(clinical = 'DECIPHER - VOUS') %>% mutate(tag = 'DECIPHER'),
+#   vus_clinvar_results %>% rename(clinical = clinical2) %>% mutate(clinical = 'ClinVar - VOUS') %>% mutate(tag = 'ClinVar'),
+#   ref_sd_clinvar_del_real %>% count(clinical, reliability_score) %>% mutate(clinical = paste('ClinVar -', clinical)) %>% mutate(tag = 'ClinVar'), 
+#   ref_sd_decipher_del_real %>% count(clinical, reliability_score) %>% mutate(clinical = paste('DECIPHER -', clinical)) %>% mutate(tag = 'DECIPHER')
+# ) %>%
+#   group_by(clinical) %>%
+#   mutate(perc = n / sum(n)) %>%
+#   mutate(reliability_score = factor(reliability_score, levels = c('3', '2', '1'))) %>%
+#   ggplot(aes(clinical, perc, group = reliability_score)) +
+#   geom_col(aes(fill = as.factor(reliability_score)), color = 'black') +
+#   scale_y_continuous(label = percent) +
+#   labs(x = 'Clinical assessment', y = 'Percentage', fill = 'Uncertainty level') +
+#   facet_wrap(vars(tag), scales = 'free') +
+#   geom_text(aes(label = paste0(100*round(perc, 2), '% ', '(', n, ')' )),
+#             size = 3, position = position_stack(vjust = 0.5)) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, vjust = 0.8))
+# 
+# tmp_id_decipher_clinical <- read_tsv('/data-cbl/decipher_data/decipher-cnvs-grch37-2020-12-06.txt', skip = 1)
+# 
+# tmp_id_decipher_clinical <- tmp_id_decipher_clinical %>% 
+#   rename(id = `# patient_id`, clinical2 = pathogenicity) %>%
+#   select(id, clinical2, contribution) %>%
+#   filter(clinical2 %in% c('Pathogenic', 'Unknown', 'Likely pathogenic')) %>%
+#   mutate(id = as.character(id))
+# 
+# 
+# output_decipher_deletion %>% select(id.x, id) %>% 
+#   left_join(tmp_id_decipher_clinical, by = c('id.x' = 'id')) %>%
+#   distinct() %>%
+#   right_join(ref_sd_decipher_del_real %>% select(id, reliability_score), by = 'id') %>%
+#   mutate(clinical2 = if_else(is.na(clinical2), 'Benign', clinical2)) %>%
+#   mutate(clinical2 = factor(clinical2, levels = c('Benign', 'Pathogenic', 'Likely pathogenic', 'Unknown'))) %>%
+#   count(reliability_score, clinical2) %>%
+#   bind_rows(vus_decipher_results) %>%
+#   group_by(clinical2) %>%
+#   mutate(perc = n / sum(n)) %>%
+#   mutate(clinical2 = factor(clinical2, levels = c('Pathogenic', 'Likely pathogenic', 'Unknown', 'VOUS', 'Benign'))) %>%
+#   mutate(reliability_score = factor(reliability_score, levels = c('3', '2', '1'))) %>%
+#   ggplot(aes(clinical2, perc)) +
+#   geom_col(aes(fill = as.factor(reliability_score)), color = 'black') +
+#   scale_y_continuous(label = percent) +
+#   labs(x = 'Clinical assessment', y = 'Percentage', fill = 'Uncertainty level') +
+#   theme_minimal()
+# 
+# output_decipher_deletion %>% select(id.x, id) %>% 
+#   left_join(tmp_id_decipher_clinical, by = c('id.x' = 'id')) %>%
+#   distinct() %>%
+#   right_join(ref_sd_decipher_del_real %>% select(id, reliability_score), by = 'id') %>%
+#   mutate(clinical2 = if_else(is.na(clinical2), 'Benign', clinical2)) %>%
+#   mutate(clinical2 = factor(clinical2, levels = c('Benign', 'Pathogenic', 'Likely pathogenic', 'Unknown'))) %>%
+#   filter(!is.na(contribution)) %>%
+#   count(reliability_score, contribution) %>%
+#   group_by(contribution) %>%
+#   mutate(perc = n / sum(n)) %>%
+#   ggplot(aes(contribution, perc)) +
+#   geom_col(aes(fill = as.factor(reliability_score))) +
+#   theme_minimal()
+
+# Test - CNVs mapping ------------------------------------------------------------------------------
+
+
+# check_omim_match_del <- input_check_cnv_del_pathogenic_clinvar %>%
+#   bind_rows(input_check_cnv_del_benign) %>%
+#   bed_intersect(hgcn_genes %>% 
+#                   filter(omim == 'Yes') %>% 
+#                   select(chrom, start, end),
+#                 suffix = c('', '.y')) %>%
+#   select(-c(start.y, end.y, .source, .overlap)) %>%
+#   distinct(chrom, start, end, .keep_all = TRUE) 
+# 
+# 
+# check_omim_matched_del <- matching_length(bin_length = 100, check_omim_match_del)
+# 
+# 
+# check_protein_match_del <- input_check_cnv_del_pathogenic_clinvar %>%
+#   bind_rows(input_check_cnv_del_benign) %>%
+#   bed_intersect(hgcn_genes  %>% 
+#                   select(chrom, start, end),
+#                 suffix = c('', '.y')) %>%
+#   select(-c(start.y, end.y, .source, .overlap)) %>%
+#   distinct(chrom, start, end, .keep_all = TRUE) 
+# 
+# 
+# check_protein_matched_del <- matching_length(bin_length = 100, check_protein_match_del)
+# 
+# 
+# check_omim_matched_del %>% count(clinical)
+# check_protein_matched_del  %>% count(clinical)
+# clinvar_match_deletion  %>% count(clinical)
+
+
+# result_bancco <-  bancco_del_decipher_rel %>%
+#   mutate(tag2 = 'DECIPHER DEL') %>%
+#   bind_rows(
+# bancco_dup_decipher_rel %>%
+#   mutate(tag2 = 'DECIPHER DUP') ,
+# bancco_del_rel %>%
+#   mutate(tag2 = 'ClinVar DEL'),
+# bancco_dup_rel %>%
+#   mutate(tag2 = 'ClinVar DUP')
+# ) %>%
+#   # group_by(tag, tag2) %>%
+#   mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+# 
+# result_bancco_auroc <- result_bancco %>%
+#   group_by(tag, tag2) %>%
+#   roc_auc(clinical, .pred_pathogenic) %>%
+#   rename(auroc_total = .estimate) %>%
+#   select(tag2, auroc_total)
+
+# result_bancco_prauc <- result_bancco %>%
+#   group_by(tag, tag2) %>%
+#   pr_auc(clinical, .pred_pathogenic) %>%
+#   rename(aupr_total = .estimate) %>%
+#   select(tag2, aupr_total)
+# 
+# result_bancco_auroc_split <- result_bancco %>%
+#   group_by(tag, reliability_score, tag2) %>%
+#   roc_auc(clinical, .pred_pathogenic) %>%
+#   rename(auroc_split = .estimate) %>%
+#   select(tag2, reliability_score, auroc_split)
+# 
+# 
+
+# 
+# result_bancco_prauc_split <- result_bancco %>%
+#   group_by(tag, reliability_score, tag2) %>%
+#   pr_auc(clinical, .pred_pathogenic) %>%
+#   rename(prauc_split = .estimate) %>%
+#   select(tag2, reliability_score, prauc_split)
+# 
+# result_bancco_count <- result_bancco %>%
+#   count(reliability_score, tag2) %>%
+#   group_by(tag2) %>%
+#   mutate(perc = 100*(n / sum(n))) %>%
+#   select(-n)
+# 
+# result_bancco_auroc %>%
+#   left_join(result_bancco_prauc, by = 'tag2') %>%
+#   left_join(result_bancco_count, by = 'tag2') %>%
+#   left_join(result_bancco_auroc_split, by = c('tag2', 'reliability_score')) %>%
+#   left_join(result_bancco_prauc_split, by = c('tag2', 'reliability_score')) %>%
+#   rename(uncertainty_level = reliability_score) %>%
+#   mutate(across(where(is.numeric), round, digits= 2)) %>%
+#   gt()
+
+# let's do a 6 panel figure, 2 rows x 3 columns, first row for deletions, second row for duplications:
+
+# ROC (left panel) and PR (middle panel) curves on the TOTAL Bancco set, for the model trained on Clinvar together with the model trained on Decipher.  And label them as "pathogenicity CNVScore - trained on Clinvar" and "pathogenicity CNVScore - trained on Decipher", respectively
+# Right panel : Barplots representing the distribution across uncertainty bins of the Bancco dataset. Label them as "uncertainty CNVScore - trained on Clinvar" and "unreliability CNVScore - trained on Decipher". Rather than using "1" , "2", "3", use "lowly uncertain" , "moderately uncertain" and "highly uncertain" (do so across all figures throughout the mansucript, as "1", "2", "3" are difficult to interpret and in addition it can be confused with the Scenarios, numbering)
+# When putting headers, indicate clearly that this is the Bancco dataset, so that it is not confused with the evaluation on Clinvar or Decipher
+
+#######
+
+
+
+# 
+# # Deletion CNVs----------
+# 
+# 
+# decipher_by_decipher_del <- predict_chrom_aware_rtemis(bayesian_decipher_del_nohuman, 
+#                                                    output_decipher_deletion, '', '')
+# 
+# trendline_decipher <- gam(sd ~ s(.pred_pathogenic, bs="cr"), 
+#                          data= decipher_by_decipher_del[[3]])
+# 
+# 
+# res_df_decipher_del <- decipher_by_decipher_del[[3]] %>%
+#   mutate(gam_residuals = residuals(trendline_decipher)) %>%
+#   mutate(score_interval = ntile(.pred_pathogenic, n = 3)) %>%
+#   group_by(score_interval) %>%
+#   mutate(reliability_score = ntile(gam_residuals, split_residuals)) %>%
+#   ungroup()
+# 
+# 
+# score_intervals_df_decipher_del <- res_df_decipher_del %>% 
+#   group_by(score_interval) %>% 
+#   summarise(max_score = max(.pred_pathogenic), 
+#             min_score = min(.pred_pathogenic)) %>%
+#   arrange(score_interval)
+# 
+# ref_quantiles_decipher_del <- res_df_decipher_del %>%
+#   left_join(score_intervals_df_decipher_del, by = 'score_interval') %>%
+#   mutate(score_interval = as.character(score_interval)) %>%
+#   select(score_interval, min_score, max_score, reliability_score, sd, gam_residuals)
+# 
+# 
+# # Duplication CNVs----------
+# 
+# 
+# decipher_by_decipher_dup <- predict_chrom_aware_rtemis(bayesian_decipher_dup_nohuman, 
+#                                                        output_decipher_duplication, '', '')
+# 
+# trendline_decipher_dup <- gam(sd ~ s(.pred_pathogenic, bs="cr"), 
+#                           data= decipher_by_decipher_dup[[3]])
+# 
+# 
+# res_df_decipher_dup <- decipher_by_decipher_dup[[3]] %>%
+#   mutate(gam_residuals = residuals(trendline_decipher_dup)) %>%
+#   mutate(score_interval = ntile(.pred_pathogenic, n = 3)) %>%
+#   group_by(score_interval) %>%
+#   mutate(reliability_score = ntile(gam_residuals, split_residuals)) %>%
+#   ungroup()
+# 
+# 
+# score_intervals_df_decipher_dup <- res_df_decipher_dup %>% 
+#   group_by(score_interval) %>% 
+#   summarise(max_score = max(.pred_pathogenic), 
+#             min_score = min(.pred_pathogenic)) %>%
+#   arrange(score_interval)
+# 
+# ref_quantiles_decipher_dup <- res_df_decipher_dup %>%
+#   left_join(score_intervals_df_decipher_dup, by = 'score_interval') %>%
+#   mutate(score_interval = as.character(score_interval)) %>%
+#   select(score_interval, min_score, max_score, reliability_score, sd, gam_residuals)
+

@@ -76,8 +76,7 @@ function(input_chrom, input_start, input_end, input_type){
     input_mod_end <- as.double(str_remove_all(input_end, ','))
     input_mod_type <- tolower(input_type)
     
-    test99 <<- input_mod_start
-    
+
     
     
     if (!input_mod_chrom %in% c(as.character(1:22), 'X')) return('Wrong chromosome entered')
@@ -154,20 +153,18 @@ function(input_chrom, input_start, input_end, input_type){
     summarise(rules = str_c(rule_def, collapse =";"))
   
   
-  tmp_predicted <- tmp_predicted %>% select(-rules) %>% left_join(tmp_rules, by = 'id')
-  
 
-  tmp_predicted <- tmp_predicted %>% mutate(chrom = input_chrom,
-                                            start = input_start,
-                                            end = input_end,
-                                            variant_class = input_mod_type)
-  
-  test16 <<- tmp_predicted
-  
-  
   tmp_predicted <- tmp_predicted %>% 
+    select(-rules) %>% 
+    left_join(tmp_rules, by = 'id') %>%
+    mutate(chrom = input_mod_chrom, 
+           start = input_mod_start, 
+           end = input_mod_end,
+           variant_class = input_mod_type) %>%
     rename(cnvscore = .pred_pathogenic) %>% 
     select(chrom, start, end, variant_class, cnvscore, uncertainty_level, rules)
+  
+
   
   return(tmp_predicted)
 

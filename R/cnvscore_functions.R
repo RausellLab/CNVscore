@@ -2438,6 +2438,13 @@ predict_rtemis <- function(x, chrom_tmp, vector_chrom, df_predict,
     left_join(tmp_rulefit, by = 'rule_id') %>%
     left_join(tmp_model$coefficients %>% as_tibble(rownames = 'rule_id') %>%
                 rename(coeff_bayesian = value), by = 'rule_id') %>%
+    # filter(coefficient != 0) %>%
+    # mutate(sign_coefficient = ifelse(coefficient > 0, 'pos', 'neg')) %>%
+    # # filter(sign_coefficient == 'pos') %>%
+    # filter(risk > 0.8) %>%
+    # group_by(sign_coefficient) %>%
+    # arrange(desc(coefficient)) %>%
+    # slice_head(n = 5)
     # mutate(coeff_bayesian = abs(coeff_bayesian)) %>%
     # filter(coeff_bayesian >= 0.015 | coeff_bayesian <= -0.015) %>%
     # group_by(id) %>%
@@ -2446,9 +2453,9 @@ predict_rtemis <- function(x, chrom_tmp, vector_chrom, df_predict,
 # 
 #     mutate(rule = paste0(rule, ' - risk:', risk, ' - support:', support,
 #                          ' - coeff:', coeff_bayesian)) %>%
-    select(id, rule) %>%
+    select(id, rule_id) %>%
     group_by(id) %>%
-    summarise(rules = str_c(rule, collapse =";"))
+    summarise(rules = str_c(rule_id, collapse =";"))
     
   tmp_posterior <- posterior_epred(tmp_model, newdata = testing_set_annotated) %>%
     as_tibble()
@@ -6761,7 +6768,7 @@ get_reliability_score_mid <- function(ref, predictions) {
   
   for (i in 1:nrow(predictions)) {
     #   
-    print(paste0(i, '/', n_total_rows))
+    # print(paste0(i, '/', n_total_rows))
     
         # tmp_y <- predict(trendline_clinvar,
         #         tibble(.pred_pathogenic = predictions[i,]$.pred_pathogenic))
@@ -6923,7 +6930,7 @@ cleaning_tables <- function(x) {
 # ------------------------------------------------------------------------------
 
 
-generate_table_rel <- function(x, y, tag = '') {
+generate_table_rel <- function(x, y, tag = '', tag2 = 'Deletion') {
   
   # x <- result_clinvar_del
   # y <- ref_sd_clinvar_del_real
@@ -6956,7 +6963,7 @@ generate_table_rel <- function(x, y, tag = '') {
     mutate(`Diff. Low-High` = Low - High) %>%
     arrange(desc(All)) %>%
     rename(Model = tag) %>%
-    filter( Model %in% c('TADA', 'STRVCTVRE', 'CNVscore', 'X-CNV')) %>%
+    filter( Model %in% c('TADA', 'STRVCTVRE', 'CNVscore', 'X-CNV', 'CADD-SV')) %>%
     map_dfr(function(x) {
       if (is.numeric(x)) {
         round(x,3)*100
@@ -6969,7 +6976,7 @@ generate_table_rel <- function(x, y, tag = '') {
     
     gt() %>%
     tab_header(
-      title = glue("{tag} - Deletion CNVs (n={format(nrow(y), big.mark = ',')})"),
+      title = glue("{tag} - {tag2} CNVs (n={format(nrow(y), big.mark = ',')})"),
     ) %>%
     cols_align(align = 'center')
   
