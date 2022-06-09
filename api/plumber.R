@@ -11,7 +11,7 @@ library(rtemis)
 library(rstanarm)
 library(valr)
 
-setwd('/cnvscore')
+# setwd('/cnvscore')
 
 
 # api_bayesian_clinvar_del_nohuman <- bayesian_clinvar_del_nohuman
@@ -20,13 +20,13 @@ setwd('/cnvscore')
 api_bayesian_clinvar_del_nohuman <- list()
 api_bayesian_clinvar_dup_nohuman <- list()
 
-for (i in 1:23) {
-  api_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_del_nohuman_{i}.RData'))
-  api_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_dup_nohuman_{i}.RData'))
-
-  }
-
-source('load_data.R')
+# for (i in 1:23) {
+#   api_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_del_nohuman_{i}.RData'))
+#   api_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_dup_nohuman_{i}.RData'))
+# 
+#   }
+# 
+# source('load_data.R')
 
 
 
@@ -42,17 +42,21 @@ function(input_chrom, input_start, input_end, input_type){
     input_mod_end <- as.double(str_remove_all(input_end, ','))
     input_mod_type <- tolower(input_type)
     
+    test99 <<- input_mod_start
     
-    if ((input_mod_end - input_mod_start + 1) > 5e6 ) return ('Excedeed max. CNV length (5 MB)')
+    
     
     if (is.null(input_mod_chrom) | is.null(input_mod_start) | is.null(input_mod_end)  | is.null(input_mod_type)) return('Missing input')
-    if (!input_mod_chrom %in% c(as.character(1:22), 'X')) return('Wrong chromosome')
-    if (!input_mod_type %in% c('deletion', 'duplication')) return('Wrong variant class')
+    if (!input_mod_chrom %in% c(as.character(1:22), 'X')) return('Wrong chromosome entered')
+    if (!input_mod_type %in% c('deletion', 'duplication')) return('Wrong variant class entered')
     
     if (is.na(input_mod_start)) return('Start coordinate is not numeric')
     if (is.na(input_mod_end)) return('End coordinate is not numeric')
     
     if (input_mod_start > input_mod_end) return('Negative CNV length')
+    
+    if ((input_mod_end - input_mod_start + 1) > 5e6 ) return ('Excedeed max. CNV length (5 MB)')
+    
     
   user_input <- tibble('chrom' = input_mod_chrom,
                        'start' = input_mod_start,
@@ -132,7 +136,7 @@ function(input_chrom, input_start, input_end, input_type){
     rename(cnvscore = .pred_pathogenic) %>% 
     select(chrom, start, end, variant_class, cnvscore, uncertainty_level, rules)
   
-  tmp_predicted
+  return(tmp_predicted)
 
 }
 
