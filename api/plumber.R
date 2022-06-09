@@ -11,41 +11,41 @@ library(rtemis)
 library(rstanarm)
 library(valr)
 
-setwd('/cnvscore')
+# setwd('/cnvscore')
 
 
-api_bayesian_clinvar_del_nohuman <- list()
-api_bayesian_clinvar_dup_nohuman <- list()
+# api_bayesian_clinvar_del_nohuman <- list()
+# api_bayesian_clinvar_dup_nohuman <- list()
+# 
+# for (i in 1:23) {
+#   api_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_del_nohuman_{i}.RData'))
+#   api_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_dup_nohuman_{i}.RData'))
+# 
+#   }
 
-for (i in 1:23) {
-  api_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_del_nohuman_{i}.RData'))
-  api_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_dup_nohuman_{i}.RData'))
-
-  }
-
-source('load_data.R')
+# source('load_data.R')
 
 
 #* @filter classifier
 function(req, res){
   if (is.null(req$input_type)){
     
-    res$input_type <- NA
+    req$input_type <- NA
     plumber::forward()
     
   } else if (is.null(req$input_end)) {
     
-    res$input_end <- NA
+    req$input_end <- NA
     plumber::forward()
     
   } else if (is.null(req$input_start)) {
     
-    res$input_start <- NA
+    req$input_start <- NA
   plumber::forward()
   
   } else if (is.null(req$input_chrom)) {
     
-    res$input_chrom <- NA
+    req$input_chrom <- NA
     plumber::forward()
     
     
@@ -65,6 +65,12 @@ function(req, res){
 #* @post /classifier
 function(input_chrom, input_start, input_end, input_type){
   
+  
+  if (is.na(input_chrom) | is.na(input_start) | is.na(input_end)  | is.na(input_type)) return('Missing input values')
+  
+  if (is.na(as.double(str_remove_all(input_start, ',')))) return('Start position is not a numeric value')
+  if (is.na(as.double(str_remove_all(input_end, ',')))) return('End position is not a numeric value')
+  
     input_mod_chrom <- as.character(input_chrom)
     input_mod_start <- as.double(str_remove_all(input_start, ','))
     input_mod_end <- as.double(str_remove_all(input_end, ','))
@@ -74,7 +80,6 @@ function(input_chrom, input_start, input_end, input_type){
     
     
     
-    if (is.na(input_mod_chrom) | is.na(input_mod_start) | is.na(input_mod_end)  | is.na(input_mod_type)) return('Missing input values')
     if (!input_mod_chrom %in% c(as.character(1:22), 'X')) return('Wrong chromosome entered')
     if (!input_mod_type %in% c('deletion', 'duplication')) return('Wrong variant class entered')
     
