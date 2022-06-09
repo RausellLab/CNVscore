@@ -11,22 +11,19 @@ library(rtemis)
 library(rstanarm)
 library(valr)
 
-# setwd('/cnvscore')
+setwd('/cnvscore')
 
-
-# api_bayesian_clinvar_del_nohuman <- bayesian_clinvar_del_nohuman
-# api_bayesian_clinvar_dup_nohuman <- bayesian_clinvar_dup_nohuman
 
 api_bayesian_clinvar_del_nohuman <- list()
 api_bayesian_clinvar_dup_nohuman <- list()
 
-# for (i in 1:23) {
-#   api_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_del_nohuman_{i}.RData'))
-#   api_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_dup_nohuman_{i}.RData'))
-# 
-#   }
-# 
-# source('load_data.R')
+for (i in 1:23) {
+  api_bayesian_clinvar_del_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_del_nohuman_{i}.RData'))
+  api_bayesian_clinvar_dup_nohuman[[i]] <- readRDS(glue('bayesian_clinvar_dup_nohuman_{i}.RData'))
+
+  }
+
+source('load_data.R')
 
 
 
@@ -141,5 +138,6 @@ function(input_chrom, input_start, input_end, input_type){
 }
 
 
-
+# api_bayesian_clinvar_del_nohuman <- bayesian_clinvar_del_nohuman
+# api_bayesian_clinvar_dup_nohuman <- bayesian_clinvar_dup_nohuman
   
