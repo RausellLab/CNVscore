@@ -28,10 +28,38 @@ for (i in 1:23) {
 
 source('load_data.R')
 
-#* @param input_chrom Chromosome - genomic interval
-#* @param input_start Start - genomic interval
+
+#* @filter checkAuth
+function(req, res){
+  if (is.null(req$input_chrom)){
+    
+    res$status <- 401 # Unauthorized
+    return(list(error="Missing chromosome"))
+    
+  } else if (is.null(req$input_start)) {
+    
+    res$status <- 401 # Unauthorized
+    return(list(error="Missing genomic interval - start"))
+    
+  } else if (is.null(req$input_end)) {
+    
+    res$status <- 401 # Unauthorized
+    return(list(error="Missing genomic interval - end"))
+    
+  } else if (is.null(req$input_type)) {
+
+    res$status <- 401 # Unauthorized
+    return(list(error="Missing variant type"))
+  
+  } else {
+    plumber::forward()
+  }
+}
+
+#* @param input_type deletion or duplication
 #* @param input_end End - genomic interval 
-#* @param input_type Deletion or Duplication
+#* @param input_start Start - genomic interval
+#* @param input_chrom Chromosome - genomic interval
 #* @post /classifier
 function(input_chrom, input_start, input_end, input_type){
   
