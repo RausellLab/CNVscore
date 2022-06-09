@@ -26,6 +26,37 @@ for (i in 1:23) {
 source('load_data.R')
 
 
+#* @filter classifier
+function(req, res){
+  if (is.null(req$input_type)){
+    
+    res$input_type <- NA
+    plumber::forward()
+    
+  } else if (is.null(req$input_end)) {
+    
+    res$input_end <- NA
+    plumber::forward()
+    
+  } else if (is.null(req$input_start)) {
+    
+    res$input_start <- NA
+  plumber::forward()
+  
+  } else if (is.null(req$input_chrom)) {
+    
+    res$input_chrom <- NA
+    plumber::forward()
+    
+    
+  } else {
+    
+    plumber::forward()
+    
+  }
+    
+}
+
 
 #* @param input_type deletion or duplication
 #* @param input_end End - genomic interval 
@@ -43,7 +74,7 @@ function(input_chrom, input_start, input_end, input_type){
     
     
     
-    if (is.null(input_mod_chrom) | is.null(input_mod_start) | is.null(input_mod_end)  | is.null(input_mod_type)) return('Missing input')
+    if (is.na(input_mod_chrom) | is.na(input_mod_start) | is.na(input_mod_end)  | is.na(input_mod_type)) return('Missing input values')
     if (!input_mod_chrom %in% c(as.character(1:22), 'X')) return('Wrong chromosome entered')
     if (!input_mod_type %in% c('deletion', 'duplication')) return('Wrong variant class entered')
     
