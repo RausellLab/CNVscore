@@ -9,7 +9,9 @@ Welcome to the official Github repository of **CNVscore**.
 
 The CNVscore manuscript is available on:
 
-TBA
+Requena, Francisco, et al. "CNVscore calculates pathogenicity scores for copy number variants together with uncertainty estimates accounting for learning biases in reference Mendelian disorder datasets." medRxiv (2022). [https://doi.org/10.1101/2022.06.23.22276396](https://doi.org/10.1101/2022.06.23.22276396)
+
+
 
 
 # Table of contents
