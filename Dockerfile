@@ -36,7 +36,7 @@ RUN R -e "remotes::install_cran('patchwork', repos = 'https://cloud.r-project.or
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/randomForest/randomForest_4.6-12.tar.gz', repos=NULL, type='source')"
 
 
-RUN R -e "remotes::install_version('rstanarm', '2.21.1', repos = 'https://cran.wu.ac.at/')"
+# RUN R -e "remotes::install_version('rstanarm', '2.21.1', repos = 'https://cran.wu.ac.at/')"
 
 
 # Install CRAN packages

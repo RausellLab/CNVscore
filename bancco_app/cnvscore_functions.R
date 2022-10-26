@@ -866,8 +866,8 @@ retained_data <- function(input_tbl, tag = NULL) {
 # ------------------------------------------------------------------------------
 # plot(bayesian_model, "areas", prob = 0.95, prob_outer = 1)
 
-library(rstan)
-library(rstanarm)
+# library(rstan)
+# library(rstanarm)
 
 # nº iterations per chain (iter)
 # nº chains (chains)
@@ -2268,70 +2268,70 @@ rtemis_step1 <- function(input_tbl, tag_variant, vector_features, tag_features, 
 # ------------------------------------------------------------------------------
 # FUNCTION - RUN RTEMIS + BAYESIAN MODELS IN PARALLEL
 # ------------------------------------------------------------------------------
-
-rtemis_step2 <- function(training_set, chrom_to_run, 
-                         vector_features,
-                         formule_used, prior = NULL, input_hyper, input_iter = 3000) {
-  
-  # chrom_to_run = 8
-  # training_set <- input_tbl
-  # vector_features = vector_features
-  # prior = input_prior
-  # input_hyper = input_hyper
-  
-  
-  train_split <- training_set %>% filter(chrom != chrom_to_run) %>% select(-chrom)
-  
-  park.rf <- s.RULEFEAT(x = train_split %>% select(all_of(vector_features)),
-                        y = train_split %>% select(clinical) %>% 
-                          mutate(clinical = as.factor(if_else(clinical == 'pathogenic', 1, 0))) %>%
-                          mutate(clinical = factor(clinical, levels = c('1', '0'))) %>%
-                          pull(),
-                        n.trees = input_hyper$trees,
-                        gbm.params = list(interaction.depth = input_hyper$depth, n.minobsinnode = input_hyper$min_n))
-  
-  tmp_rulefit <- park.rf$mod$rule.coefs %>% as_tibble(rownames = 'rule_id') %>%
-    rename(rule = Rule, coefficient = Coefficient) %>%
-    mutate(rule = as.character(rule))
-  
-  train_split_annotated <- generate_rtemis(train_split, tmp_rulefit)
-  
-  if (prior == 'normal') {
-    
-    prior_selected <- normal()
-    
-  } else if (prior == 'hs') {
-    
-    prior_selected <- hs()
-    
-  } else if (prior == 'laplace') {
-    
-    prior_selected <- laplace()
-    
-  } else if (prior == 'hs_plus') {
-    
-    prior_selected <- hs_plus()
-    
-  } else if (prior == 'lasso') {
-    
-    prior_selected <- lasso()
-  }
-  
-  tmp_model <- rstanarm::stan_glm(formula = clinical ~ .,
-                                  family = 'binomial',
-                                  data = train_split_annotated,
-                                  cores = 2,
-                                  iter = input_iter,
-                                  chains = 2,
-                                  algorithm = 'sampling', 
-                                  QR = FALSE,
-                                  prior = prior_selected)
-  
-  print(glue('Chromosome {chrom_to_run} DONE!'))
-  
-  return(list('model_trained_rulefit' = park.rf,
-              'model_trained' = tmp_model, 'chrom_target' = chrom_to_run, 'set_rules' = tmp_rulefit))
-}
+# 
+# rtemis_step2 <- function(training_set, chrom_to_run, 
+#                          vector_features,
+#                          formule_used, prior = NULL, input_hyper, input_iter = 3000) {
+#   
+#   # chrom_to_run = 8
+#   # training_set <- input_tbl
+#   # vector_features = vector_features
+#   # prior = input_prior
+#   # input_hyper = input_hyper
+#   
+#   
+#   train_split <- training_set %>% filter(chrom != chrom_to_run) %>% select(-chrom)
+#   
+#   park.rf <- s.RULEFEAT(x = train_split %>% select(all_of(vector_features)),
+#                         y = train_split %>% select(clinical) %>% 
+#                           mutate(clinical = as.factor(if_else(clinical == 'pathogenic', 1, 0))) %>%
+#                           mutate(clinical = factor(clinical, levels = c('1', '0'))) %>%
+#                           pull(),
+#                         n.trees = input_hyper$trees,
+#                         gbm.params = list(interaction.depth = input_hyper$depth, n.minobsinnode = input_hyper$min_n))
+#   
+#   tmp_rulefit <- park.rf$mod$rule.coefs %>% as_tibble(rownames = 'rule_id') %>%
+#     rename(rule = Rule, coefficient = Coefficient) %>%
+#     mutate(rule = as.character(rule))
+#   
+#   train_split_annotated <- generate_rtemis(train_split, tmp_rulefit)
+#   
+#   if (prior == 'normal') {
+#     
+#     prior_selected <- normal()
+#     
+#   } else if (prior == 'hs') {
+#     
+#     prior_selected <- hs()
+#     
+#   } else if (prior == 'laplace') {
+#     
+#     prior_selected <- laplace()
+#     
+#   } else if (prior == 'hs_plus') {
+#     
+#     prior_selected <- hs_plus()
+#     
+#   } else if (prior == 'lasso') {
+#     
+#     prior_selected <- lasso()
+#   }
+#   
+#   tmp_model <- rstanarm::stan_glm(formula = clinical ~ .,
+#                                   family = 'binomial',
+#                                   data = train_split_annotated,
+#                                   cores = 2,
+#                                   iter = input_iter,
+#                                   chains = 2,
+#                                   algorithm = 'sampling', 
+#                                   QR = FALSE,
+#                                   prior = prior_selected)
+#   
+#   print(glue('Chromosome {chrom_to_run} DONE!'))
+#   
+#   return(list('model_trained_rulefit' = park.rf,
+#               'model_trained' = tmp_model, 'chrom_target' = chrom_to_run, 'set_rules' = tmp_rulefit))
+# }
 
 
 # ------------------------------------------------------------------------------
@@ -3088,72 +3088,72 @@ from_cv_rulefit <- function(model, model_name = 'RuleFit') {
 # FUNCTION - BAYESIAN RULEFIT - CROSS-VALIDATION
 # ------------------------------------------------------------------------------
 
-
-bay_rulefit_cv <- function(cv_object) {
-  
-  bayesian_result <- tibble()
-  
-  for (i in 1:10) {
-    
-    print(glue('Rulefit - split nº {i}/10 '))
-    
-    
-    tmp_training <- cv_object$splits[[i]] %>% training()
-    tmp_testing <- cv_object$splits[[i]] %>% testing()
-    tmp_name_fold <- cv_object %>% slice(i) %>% pull(id)
-    
-    
-    data_pre_lasso <- xrftest::xrf(formule_models,
-                                   data = tmp_training,
-                                   # xgb_control = list(nrounds = 100, max_depth = 5, min_child_weight = 3),
-                                   family = "binomial")
-    
-    print(glue('Bayesian - split nº {i}/10 '))
-    
-    
-    # stan(file = 'stan_model.stan' , iter= 2000, data = data_pre_lasso$full_data,
-    #      chains= 4, seed=194838)
-    
-    # special_columns <-    data_pre_lasso %>%
-    #   coef(s = "lambda.min") %>%
-    #   as_tibble() %>% filter(coefficient_lambda.min >= 1 | coefficient_lambda.min <= -1) %>%
-    #   na.omit() %>%
-    #   pull(term)
-    
-    bayesian_model <- rstanarm::stan_glm(formule_models,
-                                         family = 'binomial',
-                                         data = data_pre_lasso$full_data,
-                                         # data = data_pre_lasso$full_data[,colnames(data_pre_lasso$full_data) %in% special_columns],
-                                         # cores = 4,
-                                         iter = 2000,
-                                         # chains = 4,
-                                         algorithm = 'meanfield', # variational inference algorithms
-                                         QR = TRUE,
-                                         prior = normal())
-    # QR = TRUE,
-    # prior = laplace())
-    
-    pred_bayesian  <- posterior_epred(bayesian_model, newdata = tmp_testing) %>%
-      as_tibble() %>%
-      map_dbl(~ mean(.x))
-    
-    tmp_probs <- pred_bayesian %>% as_tibble() %>% rename(prob_predicted = value)
-    
-    tmp_result <- tmp_probs %>% bind_cols(tmp_testing %>% select(clinical)) %>% mutate(id = tmp_name_fold)
-    
-    if (i == 1) {
-      
-      bayesian_result <- tmp_result
-      
-    } else {
-      
-      bayesian_result <- bayesian_result %>% bind_rows(tmp_result)
-      
-    }
-    
-  }
-  return(bayesian_result)
-}
+# 
+# bay_rulefit_cv <- function(cv_object) {
+#   
+#   bayesian_result <- tibble()
+#   
+#   for (i in 1:10) {
+#     
+#     print(glue('Rulefit - split nº {i}/10 '))
+#     
+#     
+#     tmp_training <- cv_object$splits[[i]] %>% training()
+#     tmp_testing <- cv_object$splits[[i]] %>% testing()
+#     tmp_name_fold <- cv_object %>% slice(i) %>% pull(id)
+#     
+#     
+#     data_pre_lasso <- xrftest::xrf(formule_models,
+#                                    data = tmp_training,
+#                                    # xgb_control = list(nrounds = 100, max_depth = 5, min_child_weight = 3),
+#                                    family = "binomial")
+#     
+#     print(glue('Bayesian - split nº {i}/10 '))
+#     
+#     
+#     # stan(file = 'stan_model.stan' , iter= 2000, data = data_pre_lasso$full_data,
+#     #      chains= 4, seed=194838)
+#     
+#     # special_columns <-    data_pre_lasso %>%
+#     #   coef(s = "lambda.min") %>%
+#     #   as_tibble() %>% filter(coefficient_lambda.min >= 1 | coefficient_lambda.min <= -1) %>%
+#     #   na.omit() %>%
+#     #   pull(term)
+#     
+#     bayesian_model <- rstanarm::stan_glm(formule_models,
+#                                          family = 'binomial',
+#                                          data = data_pre_lasso$full_data,
+#                                          # data = data_pre_lasso$full_data[,colnames(data_pre_lasso$full_data) %in% special_columns],
+#                                          # cores = 4,
+#                                          iter = 2000,
+#                                          # chains = 4,
+#                                          algorithm = 'meanfield', # variational inference algorithms
+#                                          QR = TRUE,
+#                                          prior = normal())
+#     # QR = TRUE,
+#     # prior = laplace())
+#     
+#     pred_bayesian  <- posterior_epred(bayesian_model, newdata = tmp_testing) %>%
+#       as_tibble() %>%
+#       map_dbl(~ mean(.x))
+#     
+#     tmp_probs <- pred_bayesian %>% as_tibble() %>% rename(prob_predicted = value)
+#     
+#     tmp_result <- tmp_probs %>% bind_cols(tmp_testing %>% select(clinical)) %>% mutate(id = tmp_name_fold)
+#     
+#     if (i == 1) {
+#       
+#       bayesian_result <- tmp_result
+#       
+#     } else {
+#       
+#       bayesian_result <- bayesian_result %>% bind_rows(tmp_result)
+#       
+#     }
+#     
+#   }
+#   return(bayesian_result)
+# }
 
 # ------------------------------------------------------------------------------
 # FUNCTION - RULEFIT MODEL - CROSS-VALIDATION
