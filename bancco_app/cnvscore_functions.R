@@ -164,15 +164,18 @@ plot_diff <- function(input_tbl) {
 # MATCHING CNVs BY LENGTH
 # ------------------------------------------------------------------------------
 
-matching_length <- function(bin_length = 100, tbl_input) {
+matching_length <- function(bin_length = 100, tbl_input, ratio = 1) {
   
   
   ranking_tech <- tibble(ranking = 1:6, source = c('beyter_et_al', 'audano_et_al', 'chaisson_et_al',
                                    'gnomad_v2.1', 'dgv', 'decipher_control'))
   
   # bin_length <- 100
-  # tbl_input <- vus_decipher_before_match
+  # tbl_input <- a
+  # ratio <- 1
   
+  # Demonstration - We have to filter a higher nº of non-pathogenic CNVs
+  # tbl_input %>% select(length_cnv, clinical) %>% cbind(output_clinvar_deletion %>% select(length_cnv, clinical) %>% mutate(clinical = 'training')) %>% ggplot(aes(log10(length_cnv))) + geom_density(aes(fill = clinical, alpha = 0.3))
   
   tbl_bins <- tibble('start' = seq(1, 1e7, bin_length), 'end' = seq(bin_length, 1e7, bin_length)) %>%
     mutate(chrom = 'chr1') %>%
@@ -208,21 +211,44 @@ matching_length <- function(bin_length = 100, tbl_input) {
     count(id.y) %>%
     rename(n_decipher = n)
   
+  intervals_after_ratio_ok <- tmp_input_check_cnv %>%
+    filter(id.y %in% bins_with_decipher_and_control) %>% 
+    count(clinical.x, id.y) %>%
+    pivot_wider(id_cols = id.y, names_from = clinical.x, values_from = n) %>%
+    mutate(ratio_ok = ifelse(benign >= pathogenic*ratio, 'yes', 'no')) 
+  
+  if (ratio == 1) intervals_after_ratio_ok <- intervals_after_ratio_ok %>%
+    mutate(ratio_ok = 'yes')
+  
+  
+  intervals_after_ratio_ok <- intervals_after_ratio_ok %>%
+    filter(ratio_ok == 'yes') %>%
+    pull(id.y)
+  
+  
+  
+  number_decipher_cnvs <- number_decipher_cnvs %>%
+    filter(id.y %in% intervals_after_ratio_ok)
+  
+  
   final_keep_tmp_ids <- c()
   
+   
   for (i in 1:nrow(number_decipher_cnvs)) {
     
     print(glue('{i} / {nrow(number_decipher_cnvs)} genomic intervals'))
     
+    how_many_controls <- number_decipher_cnvs$n_decipher[i]*ratio
+    
     tmp_control_id_tmp <- tmp_input_check_cnv %>%
-      filter(id.y %in% bins_with_decipher_and_control) %>%
-      filter(clinical.x != 'pathogenic') %>%
+      # filter(id.y %in% bins_with_decipher_and_control) %>%
+      filter(clinical.x == 'benign') %>%
       filter(id.y == number_decipher_cnvs$id.y[i]) %>%
       left_join(ranking_tech, by = c('source.x' = 'source')) %>%
       # if we do not sample randomly, most benign CNVs are mapping chr1
       sample_n(size = nrow(.)) %>%
       arrange(ranking) %>%
-      slice(1:number_decipher_cnvs$n_decipher[i]) %>%
+      slice(1:how_many_controls) %>%
       pull(id_tmp.x)
     
     # for (i in 1:)
@@ -1937,7 +1963,7 @@ parallel_gbm <- function(training_set, chrom_to_run, formule_used, list_hyper) {
     tmp_model <- gbm.fit <- gbm(
       formula = formule_used,
       data = train_split,
-      n.trees = 500,
+      n.trees = 1000,
       distribution = 'bernoulli',
       bag.fraction = 0.5,
       shrinkage = 0.001,
@@ -2438,6 +2464,13 @@ predict_rtemis <- function(x, chrom_tmp, vector_chrom, df_predict,
     left_join(tmp_rulefit, by = 'rule_id') %>%
     left_join(tmp_model$coefficients %>% as_tibble(rownames = 'rule_id') %>%
                 rename(coeff_bayesian = value), by = 'rule_id') %>%
+    # filter(coefficient != 0) %>%
+    # mutate(sign_coefficient = ifelse(coefficient > 0, 'pos', 'neg')) %>%
+    # # filter(sign_coefficient == 'pos') %>%
+    # filter(risk > 0.8) %>%
+    # group_by(sign_coefficient) %>%
+    # arrange(desc(coefficient)) %>%
+    # slice_head(n = 5)
     # mutate(coeff_bayesian = abs(coeff_bayesian)) %>%
     # filter(coeff_bayesian >= 0.015 | coeff_bayesian <= -0.015) %>%
     # group_by(id) %>%
@@ -2446,9 +2479,9 @@ predict_rtemis <- function(x, chrom_tmp, vector_chrom, df_predict,
 # 
 #     mutate(rule = paste0(rule, ' - risk:', risk, ' - support:', support,
 #                          ' - coeff:', coeff_bayesian)) %>%
-    select(id, rule) %>%
+    select(id, rule_id) %>%
     group_by(id) %>%
-    summarise(rules = str_c(rule, collapse =";"))
+    summarise(rules = str_c(rule_id, collapse =";"))
     
   tmp_posterior <- posterior_epred(tmp_model, newdata = testing_set_annotated) %>%
     as_tibble()
@@ -2496,10 +2529,20 @@ predict_rtemis <- function(x, chrom_tmp, vector_chrom, df_predict,
     enframe(name = NULL) %>%
     rename(mad = value)
   
+  skewness_tmp <-  tmp_posterior %>% map_dbl(~ skewness(.x)) %>%
+    enframe(name = NULL) %>%
+    rename(skewness = value)
+  
+  kurtosis_tmp <-  tmp_posterior %>% map_dbl(~ kurtosis(.x)) %>%
+    enframe(name = NULL) %>%
+    rename(kurtosis = value)
+  
   tmp_predicted <- prob_tmp %>% 
     bind_cols(sd_tmp, df_predict %>% select(clinical, id)) %>%
     bind_cols(prob2_tmp) %>%
     bind_cols(mad_tmp) %>%
+    bind_cols(skewness_tmp) %>%
+    bind_cols(kurtosis_tmp) %>%
     left_join(rules_tmp, by = 'id') %>%
     mutate(chrom = vector_chrom[chrom_tmp])
     # mutate(vector_posterior = paste(tmp_posterior, collapse = ', '))
@@ -2684,7 +2727,8 @@ predict_chrom_aware <- function(list_models, df_to_predict, only_table = FALSE,
   
   prob_predicted <- prob_predicted %>% mutate(tag = paste(tag, '-',  auc_result ))
   
-  return(list('tmp_roc_curve' = roc_result, 'tmp_pr_curve' = pr_result, 'tmp_predicted' = prob_predicted))
+  # return(list('tmp_roc_curve' = roc_result, 'tmp_pr_curve' = pr_result, 'tmp_predicted' = prob_predicted))
+  return(prob_predicted)
   
 }
 
@@ -4141,8 +4185,6 @@ write_tsv(to_write_hg38 %>%
             select(chrom, start, end, type), 'rival_cnvscore/CADD-SV/input/id_input.bed', col_names = FALSE)
   
 
-
-
 # ------------------------------------------------------------------------------
 # AnnotSV
 # ------------------------------------------------------------------------------
@@ -4164,7 +4206,7 @@ write_tsv(to_write %>%
 
 write_tsv(to_write %>%
             mutate(start = start - 1) %>%
-            select(chrom, start, end), 'rival_cnvscore/TADA/comp_folder/both/input.bed', col_names = FALSE)
+            select(chrom, start, end) %>% distinct(), 'rival_cnvscore/TADA/comp_folder/both/input.bed', col_names = FALSE)
 
 
 
@@ -4314,8 +4356,8 @@ run_competitors <- function(x) {
 read_competitors2 <- function(label_title,x, list_models) {
   
   
-  # x <- input_df
-  # list_models <- list_results
+  # x <- decipher_ens_dup_data
+  # # list_models <- list_results
   # label_title <- 'prueba - borrar'
   
 
@@ -4348,7 +4390,8 @@ read_competitors2 <- function(label_title,x, list_models) {
     mutate(.pred_pathogenic = ifelse(.pred_pathogenic == 'not_exonic', 0, .pred_pathogenic)) %>%
     mutate(.pred_pathogenic = as.numeric(.pred_pathogenic)) %>%
     left_join(to_write_hg38, by = c('chrom', 'start', 'end')) %>%
-    select(.pred_pathogenic, id)
+    select(.pred_pathogenic, id) %>%
+    distinct()
   
   
   ## CADD-SV ------------------------
@@ -4362,18 +4405,21 @@ read_competitors2 <- function(label_title,x, list_models) {
     select(chrom, start, end, .pred_pathogenic) %>%
     left_join(to_write_hg38 , by = c('chrom', 'start', 'end')) %>%
     na.omit() %>%
-    select(id, .pred_pathogenic)
+    select(id, .pred_pathogenic) %>%
+    distinct()
   
   ## TADA------------------------
   
   result_tada_manolo_deletion <-
     read_tsv('rival_cnvscore/TADA/comp_folder/both/Annotated_Predicted_PATHOGENIC.csv') %>%
     rename(chrom = CHR, start = START, end = END, .pred_pathogenic = `Pathogenicity Score`) %>%
-    mutate(chrom = str_remove(chrom, 'chr'), start = start + 1) %>%
-    # select(chrom, start, end, .pred_pathogenic) %>%
+    mutate(chrom = str_remove(chrom, 'chr'), start = start + 1) %>% 
+    select(chrom, start, end, .pred_pathogenic) %>%
+    distinct() %>%
     left_join(x %>% select(chrom, start, end, clinical, id), by = c('chrom', 'start', 'end')) %>%
-    na.omit() %>%
-    select(id, .pred_pathogenic)
+    # na.omit() %>%
+    select(id, .pred_pathogenic) %>%
+    distinct()
   
   ## TAD FUSION ------------------------
   
@@ -4383,7 +4429,8 @@ read_competitors2 <- function(label_title,x, list_models) {
     right_join(x %>% select(chrom, start, end, clinical, id), by = c('chrom', 'start', 'end')) %>%
     mutate(score = if_else(is.na(score), 0, score)) %>%
     rename(.pred_pathogenic = score) %>%
-    select(id, .pred_pathogenic)
+    select(id, .pred_pathogenic) %>%
+    distinct()
   
   ## Classify CNV -----------------
   
@@ -4396,7 +4443,8 @@ read_competitors2 <- function(label_title,x, list_models) {
     rename(.pred_pathogenic = score) %>%
     mutate(start = start + 1) %>%
     left_join(x %>% select(chrom, start, end, clinical, id), by = c('chrom', 'start', 'end')) %>%
-    select(id, .pred_pathogenic)
+    select(id, .pred_pathogenic) %>%
+    distinct()
 
   
   ## X-CNV------------------------
@@ -4407,33 +4455,34 @@ read_competitors2 <- function(label_title,x, list_models) {
     select(chrom, start, end, .pred_pathogenic) %>%
     mutate(chrom = as.character(chrom)) %>%
     left_join(x %>% select(chrom, start, end, clinical, id), by = c('chrom', 'start', 'end')) %>%
-    select(id, .pred_pathogenic)
+    select(id, .pred_pathogenic) %>%
+    distinct()
   
   ## JARVIS------------------------
   
-  
+  # 
   result_jarvis_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
-    
+
     tmp_df <-  read_tsv(glue('rival_cnvscore/jarvis/output_{x}.bed'), col_names = FALSE)
-    
+
     if (nrow(tmp_df) == 0) {
-      
+
       return(tibble())
-      
+
     } else {
-      
+
       tmp_df <-  tmp_df %>%
         rename(id = X4, score = X8) %>%
         select(id, score) %>%
         mutate(id = as.character(id))
-      
+
     }
-    
+
     return(tmp_df)
-    
+
   })
-  
-  
+  # 
+  # 
   result_jarvis_manolo_deletion<- result_jarvis_manolo_deletion %>%
     filter(!is.infinite(score)) %>%
     na.omit() %>%
@@ -4446,36 +4495,37 @@ read_competitors2 <- function(label_title,x, list_models) {
     pivot_longer(cols = -id) %>%
     group_by(id) %>%
     summarise(.pred_pathogenic = mean(value)) %>%
-    na.omit() 
-  
-  ## GWRVIS------------------------
-  
-  
+    na.omit() %>%
+    distinct()
+  # 
+  # ## GWRVIS------------------------
+  # 
+  # 
   result_gwrvis_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
-    
+
     print(x)
-    
+
     tmp_df <-  read_tsv(glue('rival_cnvscore/gwrvis/output_{x}.bed'), col_names = FALSE)
-    
+
     if (nrow(tmp_df) != 0) {
-      
+
       tmp_df <-  tmp_df %>%
         rename(id = X4, score = X8) %>%
         select(id, score) %>%
         mutate(id = as.character(id))
-      
+
     } else {
-      
+
       return(tibble())
-      
+
     }
-    
+
     return(tmp_df)
-    
-    
+
+
   })
-  
-  
+  # 
+  # 
   result_gwrvis_manolo_deletion<- result_gwrvis_manolo_deletion %>%
     filter(!is.infinite(score)) %>%
     na.omit() %>%
@@ -4488,7 +4538,8 @@ read_competitors2 <- function(label_title,x, list_models) {
     pivot_longer(cols = -id) %>%
     group_by(id) %>%
     summarise(.pred_pathogenic = 1 - mean(value)) %>%
-    na.omit()
+    na.omit() %>%
+    distinct()
   
   predictions_tables <- bind_rows(
     result_cadd_manolo_deletion %>% mutate(tag = 'cadd'),
@@ -4512,381 +4563,381 @@ read_competitors2 <- function(label_title,x, list_models) {
 # ------------------------------------------------------------------------------
 # READ COMPETITOR'S RESULTS
 # ------------------------------------------------------------------------------
-
-read_competitors <- function(label_title,x, list_models) {
-  
-  # x <- output_decipher_duplication
-  # 
-  # list_models <- list(result_bay_x_bias_dup_length, result_bay_x_bias_dup_n_genes,
-  #                                                                 result_bay_x_bias_dup_disease_omim, result_bay_x_dup_nohuman, 
-  #                                                                 result_bay_x_dup_human,
-  #                                                                 result_rf_x_dup_nohuman,
-  #                                                                 result_rf_x_dup_human)
-  
-  roc_curves_table <- tibble()
-  pr_curves_table <- tibble()
-  result_main_table <- tibble()
-
-  if (length(list_models) > 0) {
-    
-    for(i in 1:length(list_models)) {
-      
-      roc_curves_table <- roc_curves_table %>% bind_rows(list_models[[i]]$tmp_roc_curve %>% mutate(tool = paste0('CNVscore', i)))
-      pr_curves_table <- pr_curves_table %>% bind_rows(list_models[[i]]$tmp_pr_curve  %>% mutate(tool = paste0('CNVscore', i)))
-      
-      
-      result_main_table <- result_main_table %>% bind_rows(tibble(tool = paste0('CNVscore', i), 
-                                                                  read_rows = nrow(list_models[[i]]$tmp_predicted),
-                                                                  roc_auc = list_models[[i]]$tmp_predicted  %>% roc_auc(clinical, .pred_pathogenic) %>% pull(.estimate) %>% round(3),
-                                                                  pr_auc = list_models[[i]]$tmp_predicted  %>% pr_auc(clinical, .pred_pathogenic) %>% pull(.estimate) %>% round(3)
-      ))
-    }
-  }
-  
-  
-  # For CADD-SV and STRVCTURE (hg38)
-
-  
-  from_hg19_to_hg38 = import.chain('/data-cbl/liftover/hg19ToHg38.over.chain')
-  
-  to_write_tmp <- x %>% 
-    select(chrom, start, end, id) %>% 
-    GRanges()
-  
-  seqlevelsStyle(to_write_tmp) = "UCSC"  # necessary
-  to_write_hg38 = liftOver(to_write_tmp, from_hg19_to_hg38) %>% 
-    as_tibble() %>%
-    rename(chrom = seqnames) %>%
-    mutate(chrom = str_remove(chrom, 'chr')) %>%
-    select(chrom, start, end, id) %>%
-    left_join(x %>% select(id, clinical), by = 'id') %>%
-    select(-id)
-    
-  
-  result_cadd_manolo_deletion <- read_tsv('rival_cnvscore/CADD-SV/output/input2_score.bed', skip = 1, col_names = c('chrom', 'start', 'end', 'class','name', '.pred_pathogenic', letters))
-  
-  result_cadd_manolo_deletion <- result_cadd_manolo_deletion %>% 
-    mutate(chrom = as.character(chrom)) %>%
-    mutate(start = start + 1) %>%
-    select(chrom, start, end, .pred_pathogenic) %>%
-    left_join(to_write_hg38 , by = c('chrom', 'start', 'end')) %>%
-    na.omit()
-  
-  cadd_del_manolo_auc <- just_auc(result_cadd_manolo_deletion)
-  
-  
-  
-  ## TADA------------------------
-  
-  result_tada_manolo_deletion <-
-    read_tsv('rival_cnvscore/TADA/comp_folder/both/Annotated_Predicted_PATHOGENIC.csv') %>%
-    rename(chrom = CHR, start = START, end = END, .pred_pathogenic = `Pathogenicity Score`) %>%
-    mutate(chrom = str_remove(chrom, 'chr'), start = start + 1) %>%
-    select(chrom, start, end, .pred_pathogenic) %>%
-    left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end')) %>%
-    na.omit()
-  
-  tada_del_manolo_auc <- just_auc(result_tada_manolo_deletion)
-  
-  
-  ## TAD FUSION ------------------------
-  
-  result_tadfusion_manolo_deletion <-  read_tsv('rival_cnvscore/tad_fusion/output.tsv', col_names = c('chrom', 'start', 'end','score')) %>%
-    mutate(chrom = str_remove(chrom, 'chr')) %>%
-    mutate(score = (score - min(score)) / (max(score) - min(score))) %>%
-    right_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end')) %>%
-    mutate(score = if_else(is.na(score), 0, score)) %>%
-    rename(.pred_pathogenic = score)
-  
-  tadfusion_del_manolo_auc <- just_auc(result_tadfusion_manolo_deletion)
-  
-  
-  ## STRUCTRUE ------------------------
-  
-  result_structure_manolo_deletion <-  read_tsv('rival_cnvscore/structure/output.bed', col_names = c('chrom', 'start', 'end'))
-  
-  
-  result_structure_manolo_deletion <- result_structure_manolo_deletion %>% 
-    mutate(start = start + 1) %>%
-    mutate(chrom = str_remove(chrom, 'chr')) %>%
-
-    rename(.pred_pathogenic = X5) %>%
-    mutate(.pred_pathogenic = ifelse(.pred_pathogenic == 'not_exonic', 0, .pred_pathogenic)) %>%
-    mutate(.pred_pathogenic = as.numeric(.pred_pathogenic)) %>%
-    left_join(to_write_hg38, by = c('chrom', 'start', 'end')) %>%
-    select(.pred_pathogenic, clinical)
-  
-  structure_del_manolo_auc <- just_auc(result_structure_manolo_deletion)
-  
-  
-  ## JARVIS  ------------------------
-  
-  
-  result_jarvis_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
-    
-    tmp_df <-  read_tsv(glue('rival_cnvscore/jarvis/output_{x}.bed'), col_names = FALSE)
-    
-    if (nrow(tmp_df) == 0) {
-      
-      return(tibble())
-      
-    } else {
-      
-      tmp_df <-  tmp_df %>%
-        rename(id = X4, score = X8) %>%
-        select(id, score) %>%
-        mutate(id = as.character(id))
-      
-    }
-    
-    return(tmp_df)
-    
-  })
-  
-  
-  result_jarvis_manolo_deletion<- result_jarvis_manolo_deletion %>%
-    filter(!is.infinite(score)) %>%
-    na.omit() %>%
-    group_by(id) %>%
-    summarise(median_score = median(score),
-              mean_score = mean(score),
-              q1_score = quantile(score, 0.25),
-              q3_score = quantile(score, 0.75)
-    ) %>%
-    pivot_longer(cols = -id) %>%
-    group_by(id) %>%
-    summarise(.pred_pathogenic = mean(value)) %>%
-    left_join(x %>% select(id, clinical) %>% mutate(id = as.character(id))) %>%
-    na.omit() 
-  
-  jarvis_del_manolo_auc <- just_auc(result_jarvis_manolo_deletion)
-  
-  
-  ## gwRVIS  ------------------------
-  
-  result_gwrvis_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
-    
-    print(x)
-    
-    tmp_df <-  read_tsv(glue('rival_cnvscore/gwrvis/output_{x}.bed'), col_names = FALSE)
-    
-    if (nrow(tmp_df) != 0) {
-      
-      tmp_df <-  tmp_df %>%
-        rename(id = X4, score = X8) %>%
-        select(id, score) %>%
-        mutate(id = as.character(id))
-
-    } else {
-      
-      return(tibble())
-      
-    }
-    
-    return(tmp_df)
-    
-    
-  })
-  
-  
-  result_gwrvis_manolo_deletion<- result_gwrvis_manolo_deletion %>%
-    filter(!is.infinite(score)) %>%
-    na.omit() %>%
-    group_by(id) %>%
-    summarise(median_score = median(score),
-              mean_score = mean(score),
-              q1_score = quantile(score, 0.25),
-              q3_score = quantile(score, 0.75)
-    ) %>%
-    pivot_longer(cols = -id) %>%
-    group_by(id) %>%
-    summarise(.pred_pathogenic = 1 - mean(value)) %>%
-    left_join(x %>% select(id, clinical) %>% mutate(id = as.character(id))) %>%
-    na.omit() # ASK ANTONIO
-  
-  gwrvis_del_manolo_auc <- just_auc(result_gwrvis_manolo_deletion)
-  
-  ## Classify CNV -----------------
-  
-  
-  result_classifycnv_manolo_deletion <- read_tsv('rival_cnvscore/classifycnv/result/Scoresheet.txt') %>%
-    select(Chromosome, Start, End, `Total score`) %>%
-    rename(score = `Total score`, chrom = Chromosome, start = Start, end = End) %>%
-    mutate(chrom = str_remove(chrom, 'chr')) %>%
-    mutate(score = (score - min(score)) / (max(score) - min(score))) %>%
-    rename(.pred_pathogenic = score) %>%
-    mutate(start = start + 1) %>%
-    left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end'))
-  
-  classifycnv_del_manolo_auc <- just_auc(result_classifycnv_manolo_deletion)
-  
-  
-  ## X-CNV------------------------
-  
-  result_xcnv_manolo_deletion <- read_csv('rival_cnvscore/x_cnv/input.output.csv') %>%
-    rename(chrom = Chr, start = Start, end = End, .pred_pathogenic = MVP_score) %>%
-    mutate(start = start + 1) %>%
-    select(chrom, start, end, .pred_pathogenic) %>%
-    mutate(chrom = as.character(chrom)) %>%
-    left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end'))
-  
-  xcnv_del_manolo_auc <- just_auc(result_xcnv_manolo_deletion)
-  
-  
-  
-  ## AnnotSV------------------------
-  
-  
-  # result_annotsv_manolo_deletion <- read_tsv('rival_cnvscore/annot_sv/output.bed') %>%
-  #   filter(Annotation_mode == 'full') %>%
-  #   rename(chrom = SV_chrom, start = SV_start, end = SV_end, .pred_pathogenic = AnnotSV_ranking_score) %>%
-  #   mutate(start = start + 1) %>%
-  #   select(chrom, start, end, .pred_pathogenic) %>%
-  #   mutate(chrom = as.character(chrom)) %>%
-  #   left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end')) %>%
-  #   select(.pred_pathogenic, clinical)
-  # 
-  # 
-  # annotsv_del_manolo_auc <- just_auc(result_annotsv_manolo_deletion)
-  
-  annotsv_del_manolo_auc <- c(0, 0)
-  result_annotsv_manolo_deletion <- tibble()
-  
-  
-  result_main_table <- result_main_table %>% bind_rows(tibble('tool' = c('CADD-SV', 'TADA', 'TADFusion', 'STRVCTURE', 'JARVIS', 'GWRVIS', 'ClassifyCNV', 'X-CNV', 'AnnotSV'),
-                              'read_rows' = c(nrow(result_cadd_manolo_deletion), nrow(result_tada_manolo_deletion), nrow(result_tadfusion_manolo_deletion), nrow(result_structure_manolo_deletion), nrow(result_jarvis_manolo_deletion), nrow(result_gwrvis_manolo_deletion), nrow(result_classifycnv_manolo_deletion), nrow(result_xcnv_manolo_deletion), nrow(result_annotsv_manolo_deletion)),
-                              'roc_auc' = c(cadd_del_manolo_auc[1], tada_del_manolo_auc[1], tadfusion_del_manolo_auc[1], structure_del_manolo_auc[1], jarvis_del_manolo_auc[1], gwrvis_del_manolo_auc[1], classifycnv_del_manolo_auc[1], xcnv_del_manolo_auc[1], annotsv_del_manolo_auc[1]),
-                              'pr_auc' = c(cadd_del_manolo_auc[2], tada_del_manolo_auc[2], tadfusion_del_manolo_auc[2], structure_del_manolo_auc[2], jarvis_del_manolo_auc[2], gwrvis_del_manolo_auc[2], classifycnv_del_manolo_auc[2], xcnv_del_manolo_auc[2], annotsv_del_manolo_auc[2])
-  ))
-  
-  
-  result_main_table <- result_main_table %>% filter(!tool %in% c('TADFusion', 'AnnotSV'))
-    
-  
-  result_main_table <-  result_main_table  %>%
-    mutate(tag2 = case_when(
-      str_detect(tool, 'CNVscore') ~ 'CNVscore',
-      tool %in% c('ClassifyCNV', 'TADA') ~ 'Knowledge-based',
-      tool %in% c('TADFusion','CADD-SV', 'STRVCTURE', 'JARVIS', 'GWRVIS', 'X-CNV') ~ 'Unbiased approach',
-    ))
-  
-  
-  predictions_tables <- bind_rows(
-    result_cadd_manolo_deletion %>% select(.pred_pathogenic, id) %>% rename(tool = 'cadd'),
-    result_tada_manolo_deletion %>% select(.pred_pathogenic, id) %>% rename(tool = 'tada'),
-    result_structure_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'strvctvre'),
-    result_jarvis_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'jarvis'),
-    result_gwrvis_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'gwrvis'),
-    result_classifycnv_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'classifycnv'),
-    result_xcnv_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'xcnv')
-    # result_annotsv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-    #   mutate(tag = glue('AnnotSV - {annotsv_del_manolo_auc[1]}'), tool = 'AnnotSV')
-  )
-  
-  
-  
-  roc_curves_table <- roc_curves_table %>% bind_rows(
-    result_cadd_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>%
-      mutate(tag = glue('CADD-SV - {cadd_del_manolo_auc[1]}'), tool = 'CADD-SV'),
-    result_tada_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('TADA (*) - {tada_del_manolo_auc[1]}'), tool = 'TADA'),
-    # result_tadfusion_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-    #   mutate(tag = glue('TADFusion - {tadfusion_del_manolo_auc[1]}'), tool = 'TADFusion'),
-    result_structure_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('STRVCTURE  - {structure_del_manolo_auc[1]}'), tool = 'STRVCTURE'),
-    result_jarvis_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('JARVIS - {jarvis_del_manolo_auc[1]}'), tool = 'JARVIS'),
-    result_gwrvis_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('GWRVIS - {gwrvis_del_manolo_auc[1]}'), tool = 'GWRVIS'),
-    result_classifycnv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('ClassifyCNV - {classifycnv_del_manolo_auc[1]}'), tool = 'ClassifyCNV'),
-    result_xcnv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('X-CNV - {xcnv_del_manolo_auc[1]}'), tool = 'X-CNV')
-    # result_annotsv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
-    #   mutate(tag = glue('AnnotSV - {annotsv_del_manolo_auc[1]}'), tool = 'AnnotSV')
-  )
-  
-  
-  
-  pr_curves_table <- pr_curves_table %>% bind_rows(
-    result_cadd_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>%
-      mutate(tag = glue('CADD-SV - {cadd_del_manolo_auc[2]}'), tool = 'CADD-SV'),
-    result_tada_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('TADA  (*) - {tada_del_manolo_auc[2]}'), tool = 'TADA'),
-    # result_tadfusion_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-    #   mutate(tag = glue('TADFusion - {tadfusion_del_manolo_auc[2]}'), tool = 'TADFusion'),
-    result_structure_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('STRVCTURE - {structure_del_manolo_auc[2]}'), tool = 'STRVCTURE'),
-    result_jarvis_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('JARVIS - {jarvis_del_manolo_auc[2]}'), tool = 'JARVIS'),
-    result_gwrvis_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('GWRVIS - {gwrvis_del_manolo_auc[2]}'), tool = 'GWRVIS'),
-    result_classifycnv_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('ClassifyCNV - {classifycnv_del_manolo_auc[2]}'), tool = 'ClassifyCNV'),
-    result_xcnv_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-      mutate(tag = glue('X-CNV - {xcnv_del_manolo_auc[2]}'), tool = 'X-CNV')
-    # result_annotsv_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
-    #   mutate(tag = glue('AnnotSV - {annotsv_del_manolo_auc[2]}'), tool = 'AnnotSV')
-  )
-
-  tmp_result_main_table <- result_main_table  %>%
-    left_join(roc_curves_table) %>%
-    mutate(tag = fct_reorder(tag, -roc_auc))
-  
-  tmp2_result_main_table <- tibble(tag = levels(tmp_result_main_table$tag)) %>%
-    mutate(tag2 = case_when(
-      str_detect(tag, 'dummy') ~ 'red',
-      str_detect(tag, 'bayesian|random_forest') ~ 'blue',
-      str_detect(tag, 'ClassifyCNV |TADA') ~ 'yellow',
-      str_detect(tag, 'TADFusion|CADD-SV|STRVCTURE|JARVIS|GWRVIS|X-CNV') ~ 'green'
-      
-    ))
-  
-  tmp3_result_main_table <- result_main_table  %>%
-    left_join(pr_curves_table) %>%
-    mutate(tag = fct_reorder(tag, -pr_auc))
-  
-  tmp4_result_main_table <- tibble(tag = levels(tmp3_result_main_table$tag)) %>%
-    mutate(tag2 = case_when(
-      str_detect(tag, 'dummy') ~ 'red',
-      str_detect(tag, 'bayesian|random_forest') ~ 'blue',
-      str_detect(tag, 'ClassifyCNV |TADA') ~ 'yellow',
-      str_detect(tag, 'TADFusion|CADD-SV|STRVCTURE|JARVIS|GWRVIS|X-CNV') ~ 'green',
-      
-    ))
-  
-  
-  
-  result_main_plot1 <- tmp_result_main_table  %>%
-    ggplot(aes(1-specificity, sensitivity)) +
-    geom_path(aes(group = tag, color = reorder(tag, -roc_auc)),  show.legend = TRUE,  size = 1) +
-    scale_color_manual(values = tmp2_result_main_table$tag2) +
-    theme_roc() +
-    theme(plot.title = element_text(size=18, face="bold"),
-          axis.title.x = element_text(size=17, face="bold"),
-          axis.title.y = element_text(size=17, face="bold"),
-          axis.text.x = element_text(size=14, face="bold"),
-          axis.text.y = element_text(size=14, face="bold"),
-          legend.text = element_text(size=12)) +
-    labs(title = paste(label_title), color = 'Tools')
-  
-  result_main_plot2 <- tmp3_result_main_table %>%
-    ggplot(aes(recall, precision)) +
-    geom_path(aes(group = tag, color = reorder(tag, -pr_auc)),  show.legend = TRUE,  size = 1) +
-    scale_color_manual(values = tmp4_result_main_table$tag2) +
-    theme_roc() +
-    theme(plot.title = element_text(size=18, face="bold"),
-          axis.title.x = element_text(size=17, face="bold"),
-          axis.title.y = element_text(size=17, face="bold"),
-          axis.text.x = element_text(size=14, face="bold"),
-          axis.text.y = element_text(size=14, face="bold"),
-          legend.text = element_text(size=12)) +
-  labs(title = paste(label_title), color = 'Tools')
-    
-  
-  return(list(result_main_table, roc_curves_table, pr_curves_table, predictions_tables))
-
-}
+# 
+# read_competitors <- function(label_title,x, list_models) {
+#   
+#   # x <- output_decipher_duplication
+#   # 
+#   # list_models <- list(result_bay_x_bias_dup_length, result_bay_x_bias_dup_n_genes,
+#   #                                                                 result_bay_x_bias_dup_disease_omim, result_bay_x_dup_nohuman, 
+#   #                                                                 result_bay_x_dup_human,
+#   #                                                                 result_rf_x_dup_nohuman,
+#   #                                                                 result_rf_x_dup_human)
+#   
+#   roc_curves_table <- tibble()
+#   pr_curves_table <- tibble()
+#   result_main_table <- tibble()
+# 
+#   if (length(list_models) > 0) {
+#     
+#     for(i in 1:length(list_models)) {
+#       
+#       roc_curves_table <- roc_curves_table %>% bind_rows(list_models[[i]]$tmp_roc_curve %>% mutate(tool = paste0('CNVscore', i)))
+#       pr_curves_table <- pr_curves_table %>% bind_rows(list_models[[i]]$tmp_pr_curve  %>% mutate(tool = paste0('CNVscore', i)))
+#       
+#       
+#       result_main_table <- result_main_table %>% bind_rows(tibble(tool = paste0('CNVscore', i), 
+#                                                                   read_rows = nrow(list_models[[i]]$tmp_predicted),
+#                                                                   roc_auc = list_models[[i]]$tmp_predicted  %>% roc_auc(clinical, .pred_pathogenic) %>% pull(.estimate) %>% round(3),
+#                                                                   pr_auc = list_models[[i]]$tmp_predicted  %>% pr_auc(clinical, .pred_pathogenic) %>% pull(.estimate) %>% round(3)
+#       ))
+#     }
+#   }
+#   
+#   
+#   # For CADD-SV and STRVCTURE (hg38)
+# 
+#   
+#   from_hg19_to_hg38 = import.chain('/data-cbl/liftover/hg19ToHg38.over.chain')
+#   
+#   to_write_tmp <- x %>% 
+#     select(chrom, start, end, id) %>% 
+#     GRanges()
+#   
+#   seqlevelsStyle(to_write_tmp) = "UCSC"  # necessary
+#   to_write_hg38 = liftOver(to_write_tmp, from_hg19_to_hg38) %>% 
+#     as_tibble() %>%
+#     rename(chrom = seqnames) %>%
+#     mutate(chrom = str_remove(chrom, 'chr')) %>%
+#     select(chrom, start, end, id) %>%
+#     left_join(x %>% select(id, clinical), by = 'id') %>%
+#     select(-id)
+#     
+#   
+#   result_cadd_manolo_deletion <- read_tsv('rival_cnvscore/CADD-SV/output/input2_score.bed', skip = 1, col_names = c('chrom', 'start', 'end', 'class','name', '.pred_pathogenic', letters))
+#   
+#   result_cadd_manolo_deletion <- result_cadd_manolo_deletion %>% 
+#     mutate(chrom = as.character(chrom)) %>%
+#     mutate(start = start + 1) %>%
+#     select(chrom, start, end, .pred_pathogenic) %>%
+#     left_join(to_write_hg38 , by = c('chrom', 'start', 'end')) %>%
+#     na.omit()
+#   
+#   cadd_del_manolo_auc <- just_auc(result_cadd_manolo_deletion)
+#   
+#   
+#   
+#   ## TADA------------------------
+#   
+#   result_tada_manolo_deletion <-
+#     read_tsv('rival_cnvscore/TADA/comp_folder/both/Annotated_Predicted_PATHOGENIC.csv') %>%
+#     rename(chrom = CHR, start = START, end = END, .pred_pathogenic = `Pathogenicity Score`) %>%
+#     mutate(chrom = str_remove(chrom, 'chr'), start = start + 1) %>%
+#     select(chrom, start, end, .pred_pathogenic) %>%
+#     left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end')) %>%
+#     na.omit()
+#   
+#   tada_del_manolo_auc <- just_auc(result_tada_manolo_deletion)
+#   
+#   
+#   ## TAD FUSION ------------------------
+#   
+#   result_tadfusion_manolo_deletion <-  read_tsv('rival_cnvscore/tad_fusion/output.tsv', col_names = c('chrom', 'start', 'end','score')) %>%
+#     mutate(chrom = str_remove(chrom, 'chr')) %>%
+#     mutate(score = (score - min(score)) / (max(score) - min(score))) %>%
+#     right_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end')) %>%
+#     mutate(score = if_else(is.na(score), 0, score)) %>%
+#     rename(.pred_pathogenic = score)
+#   
+#   tadfusion_del_manolo_auc <- just_auc(result_tadfusion_manolo_deletion)
+#   
+#   
+#   ## STRUCTRUE ------------------------
+#   
+#   result_structure_manolo_deletion <-  read_tsv('rival_cnvscore/structure/output.bed', col_names = c('chrom', 'start', 'end'))
+#   
+#   
+#   result_structure_manolo_deletion <- result_structure_manolo_deletion %>% 
+#     mutate(start = start + 1) %>%
+#     mutate(chrom = str_remove(chrom, 'chr')) %>%
+# 
+#     rename(.pred_pathogenic = X5) %>%
+#     mutate(.pred_pathogenic = ifelse(.pred_pathogenic == 'not_exonic', 0, .pred_pathogenic)) %>%
+#     mutate(.pred_pathogenic = as.numeric(.pred_pathogenic)) %>%
+#     left_join(to_write_hg38, by = c('chrom', 'start', 'end')) %>%
+#     select(.pred_pathogenic, clinical)
+#   
+#   structure_del_manolo_auc <- just_auc(result_structure_manolo_deletion)
+#   
+#   
+#   ## JARVIS  ------------------------
+#   
+#   
+#   result_jarvis_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
+#     
+#     tmp_df <-  read_tsv(glue('rival_cnvscore/jarvis/output_{x}.bed'), col_names = FALSE)
+#     
+#     if (nrow(tmp_df) == 0) {
+#       
+#       return(tibble())
+#       
+#     } else {
+#       
+#       tmp_df <-  tmp_df %>%
+#         rename(id = X4, score = X8) %>%
+#         select(id, score) %>%
+#         mutate(id = as.character(id))
+#       
+#     }
+#     
+#     return(tmp_df)
+#     
+#   })
+#   
+#   
+#   result_jarvis_manolo_deletion<- result_jarvis_manolo_deletion %>%
+#     filter(!is.infinite(score)) %>%
+#     na.omit() %>%
+#     group_by(id) %>%
+#     summarise(median_score = median(score),
+#               mean_score = mean(score),
+#               q1_score = quantile(score, 0.25),
+#               q3_score = quantile(score, 0.75)
+#     ) %>%
+#     pivot_longer(cols = -id) %>%
+#     group_by(id) %>%
+#     summarise(.pred_pathogenic = mean(value)) %>%
+#     left_join(x %>% select(id, clinical) %>% mutate(id = as.character(id))) %>%
+#     na.omit() 
+#   
+#   jarvis_del_manolo_auc <- just_auc(result_jarvis_manolo_deletion)
+#   
+#   
+#   ## gwRVIS  ------------------------
+#   
+#   result_gwrvis_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
+#     
+#     print(x)
+#     
+#     tmp_df <-  read_tsv(glue('rival_cnvscore/gwrvis/output_{x}.bed'), col_names = FALSE)
+#     
+#     if (nrow(tmp_df) != 0) {
+#       
+#       tmp_df <-  tmp_df %>%
+#         rename(id = X4, score = X8) %>%
+#         select(id, score) %>%
+#         mutate(id = as.character(id))
+# 
+#     } else {
+#       
+#       return(tibble())
+#       
+#     }
+#     
+#     return(tmp_df)
+#     
+#     
+#   })
+#   
+#   
+#   result_gwrvis_manolo_deletion<- result_gwrvis_manolo_deletion %>%
+#     filter(!is.infinite(score)) %>%
+#     na.omit() %>%
+#     group_by(id) %>%
+#     summarise(median_score = median(score),
+#               mean_score = mean(score),
+#               q1_score = quantile(score, 0.25),
+#               q3_score = quantile(score, 0.75)
+#     ) %>%
+#     pivot_longer(cols = -id) %>%
+#     group_by(id) %>%
+#     summarise(.pred_pathogenic = 1 - mean(value)) %>%
+#     left_join(x %>% select(id, clinical) %>% mutate(id = as.character(id))) %>%
+#     na.omit() # ASK ANTONIO
+#   
+#   gwrvis_del_manolo_auc <- just_auc(result_gwrvis_manolo_deletion)
+#   
+#   ## Classify CNV -----------------
+#   
+#   
+#   result_classifycnv_manolo_deletion <- read_tsv('rival_cnvscore/classifycnv/result/Scoresheet.txt') %>%
+#     select(Chromosome, Start, End, `Total score`) %>%
+#     rename(score = `Total score`, chrom = Chromosome, start = Start, end = End) %>%
+#     mutate(chrom = str_remove(chrom, 'chr')) %>%
+#     mutate(score = (score - min(score)) / (max(score) - min(score))) %>%
+#     rename(.pred_pathogenic = score) %>%
+#     mutate(start = start + 1) %>%
+#     left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end'))
+#   
+#   classifycnv_del_manolo_auc <- just_auc(result_classifycnv_manolo_deletion)
+#   
+#   
+#   ## X-CNV------------------------
+#   
+#   result_xcnv_manolo_deletion <- read_csv('rival_cnvscore/x_cnv/input.output.csv') %>%
+#     rename(chrom = Chr, start = Start, end = End, .pred_pathogenic = MVP_score) %>%
+#     mutate(start = start + 1) %>%
+#     select(chrom, start, end, .pred_pathogenic) %>%
+#     mutate(chrom = as.character(chrom)) %>%
+#     left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end'))
+#   
+#   xcnv_del_manolo_auc <- just_auc(result_xcnv_manolo_deletion)
+#   
+#   
+#   
+#   ## AnnotSV------------------------
+#   
+#   
+#   # result_annotsv_manolo_deletion <- read_tsv('rival_cnvscore/annot_sv/output.bed') %>%
+#   #   filter(Annotation_mode == 'full') %>%
+#   #   rename(chrom = SV_chrom, start = SV_start, end = SV_end, .pred_pathogenic = AnnotSV_ranking_score) %>%
+#   #   mutate(start = start + 1) %>%
+#   #   select(chrom, start, end, .pred_pathogenic) %>%
+#   #   mutate(chrom = as.character(chrom)) %>%
+#   #   left_join(x %>% select(chrom, start, end, clinical), by = c('chrom', 'start', 'end')) %>%
+#   #   select(.pred_pathogenic, clinical)
+#   # 
+#   # 
+#   # annotsv_del_manolo_auc <- just_auc(result_annotsv_manolo_deletion)
+#   
+#   annotsv_del_manolo_auc <- c(0, 0)
+#   result_annotsv_manolo_deletion <- tibble()
+#   
+#   
+#   result_main_table <- result_main_table %>% bind_rows(tibble('tool' = c('CADD-SV', 'TADA', 'TADFusion', 'STRVCTURE', 'JARVIS', 'GWRVIS', 'ClassifyCNV', 'X-CNV', 'AnnotSV'),
+#                               'read_rows' = c(nrow(result_cadd_manolo_deletion), nrow(result_tada_manolo_deletion), nrow(result_tadfusion_manolo_deletion), nrow(result_structure_manolo_deletion), nrow(result_jarvis_manolo_deletion), nrow(result_gwrvis_manolo_deletion), nrow(result_classifycnv_manolo_deletion), nrow(result_xcnv_manolo_deletion), nrow(result_annotsv_manolo_deletion)),
+#                               'roc_auc' = c(cadd_del_manolo_auc[1], tada_del_manolo_auc[1], tadfusion_del_manolo_auc[1], structure_del_manolo_auc[1], jarvis_del_manolo_auc[1], gwrvis_del_manolo_auc[1], classifycnv_del_manolo_auc[1], xcnv_del_manolo_auc[1], annotsv_del_manolo_auc[1]),
+#                               'pr_auc' = c(cadd_del_manolo_auc[2], tada_del_manolo_auc[2], tadfusion_del_manolo_auc[2], structure_del_manolo_auc[2], jarvis_del_manolo_auc[2], gwrvis_del_manolo_auc[2], classifycnv_del_manolo_auc[2], xcnv_del_manolo_auc[2], annotsv_del_manolo_auc[2])
+#   ))
+#   
+#   
+#   result_main_table <- result_main_table %>% filter(!tool %in% c('TADFusion', 'AnnotSV'))
+#     
+#   
+#   result_main_table <-  result_main_table  %>%
+#     mutate(tag2 = case_when(
+#       str_detect(tool, 'CNVscore') ~ 'CNVscore',
+#       tool %in% c('ClassifyCNV', 'TADA') ~ 'Knowledge-based',
+#       tool %in% c('TADFusion','CADD-SV', 'STRVCTURE', 'JARVIS', 'GWRVIS', 'X-CNV') ~ 'Unbiased approach',
+#     ))
+#   
+#   
+#   predictions_tables <- bind_rows(
+#     result_cadd_manolo_deletion %>% select(.pred_pathogenic, id) %>% rename(tool = 'cadd'),
+#     result_tada_manolo_deletion %>% select(.pred_pathogenic, id) %>% rename(tool = 'tada'),
+#     result_structure_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'strvctvre'),
+#     result_jarvis_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'jarvis'),
+#     result_gwrvis_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'gwrvis'),
+#     result_classifycnv_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'classifycnv'),
+#     result_xcnv_manolo_deletion  %>% select(.pred_pathogenic, id) %>% rename(tool = 'xcnv')
+#     # result_annotsv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#     #   mutate(tag = glue('AnnotSV - {annotsv_del_manolo_auc[1]}'), tool = 'AnnotSV')
+#   )
+#   
+#   
+#   
+#   roc_curves_table <- roc_curves_table %>% bind_rows(
+#     result_cadd_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>%
+#       mutate(tag = glue('CADD-SV - {cadd_del_manolo_auc[1]}'), tool = 'CADD-SV'),
+#     result_tada_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('TADA (*) - {tada_del_manolo_auc[1]}'), tool = 'TADA'),
+#     # result_tadfusion_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#     #   mutate(tag = glue('TADFusion - {tadfusion_del_manolo_auc[1]}'), tool = 'TADFusion'),
+#     result_structure_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('STRVCTURE  - {structure_del_manolo_auc[1]}'), tool = 'STRVCTURE'),
+#     result_jarvis_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('JARVIS - {jarvis_del_manolo_auc[1]}'), tool = 'JARVIS'),
+#     result_gwrvis_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('GWRVIS - {gwrvis_del_manolo_auc[1]}'), tool = 'GWRVIS'),
+#     result_classifycnv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('ClassifyCNV - {classifycnv_del_manolo_auc[1]}'), tool = 'ClassifyCNV'),
+#     result_xcnv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('X-CNV - {xcnv_del_manolo_auc[1]}'), tool = 'X-CNV')
+#     # result_annotsv_manolo_deletion %>% roc_curve(clinical, .pred_pathogenic) %>% 
+#     #   mutate(tag = glue('AnnotSV - {annotsv_del_manolo_auc[1]}'), tool = 'AnnotSV')
+#   )
+#   
+#   
+#   
+#   pr_curves_table <- pr_curves_table %>% bind_rows(
+#     result_cadd_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>%
+#       mutate(tag = glue('CADD-SV - {cadd_del_manolo_auc[2]}'), tool = 'CADD-SV'),
+#     result_tada_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('TADA  (*) - {tada_del_manolo_auc[2]}'), tool = 'TADA'),
+#     # result_tadfusion_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#     #   mutate(tag = glue('TADFusion - {tadfusion_del_manolo_auc[2]}'), tool = 'TADFusion'),
+#     result_structure_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('STRVCTURE - {structure_del_manolo_auc[2]}'), tool = 'STRVCTURE'),
+#     result_jarvis_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('JARVIS - {jarvis_del_manolo_auc[2]}'), tool = 'JARVIS'),
+#     result_gwrvis_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('GWRVIS - {gwrvis_del_manolo_auc[2]}'), tool = 'GWRVIS'),
+#     result_classifycnv_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('ClassifyCNV - {classifycnv_del_manolo_auc[2]}'), tool = 'ClassifyCNV'),
+#     result_xcnv_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#       mutate(tag = glue('X-CNV - {xcnv_del_manolo_auc[2]}'), tool = 'X-CNV')
+#     # result_annotsv_manolo_deletion %>% pr_curve(clinical, .pred_pathogenic) %>% 
+#     #   mutate(tag = glue('AnnotSV - {annotsv_del_manolo_auc[2]}'), tool = 'AnnotSV')
+#   )
+# 
+#   tmp_result_main_table <- result_main_table  %>%
+#     left_join(roc_curves_table) %>%
+#     mutate(tag = fct_reorder(tag, -roc_auc))
+#   
+#   tmp2_result_main_table <- tibble(tag = levels(tmp_result_main_table$tag)) %>%
+#     mutate(tag2 = case_when(
+#       str_detect(tag, 'dummy') ~ 'red',
+#       str_detect(tag, 'bayesian|random_forest') ~ 'blue',
+#       str_detect(tag, 'ClassifyCNV |TADA') ~ 'yellow',
+#       str_detect(tag, 'TADFusion|CADD-SV|STRVCTURE|JARVIS|GWRVIS|X-CNV') ~ 'green'
+#       
+#     ))
+#   
+#   tmp3_result_main_table <- result_main_table  %>%
+#     left_join(pr_curves_table) %>%
+#     mutate(tag = fct_reorder(tag, -pr_auc))
+#   
+#   tmp4_result_main_table <- tibble(tag = levels(tmp3_result_main_table$tag)) %>%
+#     mutate(tag2 = case_when(
+#       str_detect(tag, 'dummy') ~ 'red',
+#       str_detect(tag, 'bayesian|random_forest') ~ 'blue',
+#       str_detect(tag, 'ClassifyCNV |TADA') ~ 'yellow',
+#       str_detect(tag, 'TADFusion|CADD-SV|STRVCTURE|JARVIS|GWRVIS|X-CNV') ~ 'green',
+#       
+#     ))
+#   
+#   
+#   
+#   result_main_plot1 <- tmp_result_main_table  %>%
+#     ggplot(aes(1-specificity, sensitivity)) +
+#     geom_path(aes(group = tag, color = reorder(tag, -roc_auc)),  show.legend = TRUE,  size = 1) +
+#     scale_color_manual(values = tmp2_result_main_table$tag2) +
+#     theme_roc() +
+#     theme(plot.title = element_text(size=18, face="bold"),
+#           axis.title.x = element_text(size=17, face="bold"),
+#           axis.title.y = element_text(size=17, face="bold"),
+#           axis.text.x = element_text(size=14, face="bold"),
+#           axis.text.y = element_text(size=14, face="bold"),
+#           legend.text = element_text(size=12)) +
+#     labs(title = paste(label_title), color = 'Tools')
+#   
+#   result_main_plot2 <- tmp3_result_main_table %>%
+#     ggplot(aes(recall, precision)) +
+#     geom_path(aes(group = tag, color = reorder(tag, -pr_auc)),  show.legend = TRUE,  size = 1) +
+#     scale_color_manual(values = tmp4_result_main_table$tag2) +
+#     theme_roc() +
+#     theme(plot.title = element_text(size=18, face="bold"),
+#           axis.title.x = element_text(size=17, face="bold"),
+#           axis.title.y = element_text(size=17, face="bold"),
+#           axis.text.x = element_text(size=14, face="bold"),
+#           axis.text.y = element_text(size=14, face="bold"),
+#           legend.text = element_text(size=12)) +
+#   labs(title = paste(label_title), color = 'Tools')
+#     
+#   
+#   return(list(result_main_table, roc_curves_table, pr_curves_table, predictions_tables))
+# 
+# }
 
 # ------------------------------------------------------------------------------
 # REMOVE NOISY OBSERVATIONS
@@ -4986,7 +5037,7 @@ fill_flow <- function(x, tag) {
 
 get_results <- function(input_df, type_variant = 'DEL', tag_title, do_all = TRUE) {
   
-  # input_df <- output_decipher_duplication
+  # input_df <- decipher_ens_dup_data
   
   n_pos <- input_df %>% filter(clinical == 'pathogenic') %>% nrow()
   n_neg <- input_df %>% filter(clinical == 'benign') %>% nrow()
@@ -5000,12 +5051,12 @@ get_results <- function(input_df, type_variant = 'DEL', tag_title, do_all = TRUE
     result_gbm_nohuman <- predict_chrom_aware(gbm_clinvar_del_nohuman, input_df)
     result_gbm_human <- predict_chrom_aware(gbm_clinvar_del_human, input_df)
     
-    result_bay_nohuman  <- predict_chrom_aware_rtemis(bayesian_clinvar_del_nohuman, input_df, 'deletion', 'unbiased approach')
-    result_bay_human <- predict_chrom_aware_rtemis(bayesian_clinvar_del_human, input_df, 'deletion', 'knowledge-based')
+    result_bay_nohuman  <- predict_ensemble(clinvar_ens_del, input_df)
+    # result_bay_human <- predict_chrom_aware_rtemis(bayesian_clinvar_del_human, input_df, 'deletion', 'knowledge-based')
     
     # result_bay_omim <- predict_chrom_aware_rtemis(bayesian_clinvar_del_omim, input_df, 'deletion', 'OMIM gene(s) both patho and non-patho')
     
-    result_both <- predict_chrom_aware_rtemis(bayesian_clinvar_del_both, input_df, 'deletion', 'both')
+    # result_both <- predict_chrom_aware_rtemis(bayesian_clinvar_del_both, input_df, 'deletion', 'both')
     
     if (isTRUE(do_all)) {
       
@@ -5015,15 +5066,16 @@ get_results <- function(input_df, type_variant = 'DEL', tag_title, do_all = TRUE
     
     }
     
-    list_results <- bind_rows(result_naive_length[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_length'),
-                         result_naive_n_genes[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_n_genes'),
-                         result_naive_omim[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_omim'), 
-                         result_gbm_nohuman[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_unbiased'),
-                         result_gbm_human[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_knowledge_based'),
-                         result_bay_nohuman[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_unbiased'),
-                         result_bay_human[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_knowledge_based'),
+    list_results <- bind_rows(result_naive_length %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_length'),
+                         result_naive_n_genes %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_n_genes'),
+                         result_naive_omim %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_omim'), 
+                         result_gbm_nohuman %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_unbiased'),
+                         result_gbm_human %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_knowledge_based'),
+                         result_bay_nohuman %>% rename(.pred_pathogenic = mean_score) %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_unbiased'),
+                         # result_bay_human[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_knowledge_based'),
                          # result_bay_omim[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_special_omim'),
-                         result_both[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_both'))
+                         # result_both[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_both')
+                         )
     
     final_results_x_del <- read_competitors2(label_title = 
                                               glue('DEL - {tag_title} dataset ({n_pos} (+) - {n_neg} (-))'), 
@@ -5042,10 +5094,10 @@ get_results <- function(input_df, type_variant = 'DEL', tag_title, do_all = TRUE
     result_gbm_nohuman <- predict_chrom_aware(gbm_clinvar_dup_nohuman, input_df)
     result_gbm_human <- predict_chrom_aware(gbm_clinvar_dup_human, input_df)
     
-    result_bay_nohuman  <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_nohuman, input_df, 'duplication', 'unbiased approach')
-    result_bay_human <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_human, input_df, 'duplication', 'knowledge-based')
+    result_bay_nohuman  <- predict_ensemble(clinvar_ens_dup, input_df)
+    # result_bay_human <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_human, input_df, 'duplication', 'knowledge-based')
     
-    result_both <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_both, input_df, 'duplication', 'both')
+    # result_both <- predict_chrom_aware_rtemis(bayesian_clinvar_dup_both, input_df, 'duplication', 'both')
     
     
      if (isTRUE(do_all)) {
@@ -5055,27 +5107,17 @@ get_results <- function(input_df, type_variant = 'DEL', tag_title, do_all = TRUE
       run_competitors('DUP')
       
     }
-    
-    # list_results <- list(result_naive_length,
-    #                      result_naive_n_genes,
-    #                      result_naive_omim,
-    #                      result_gbm_nohuman,
-    #                      result_gbm_human,
-    #                      result_bay_nohuman,
-    #                      result_bay_human,
-    #                      result_both)
-    
-    
-    
-    list_results <- bind_rows(result_naive_length[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_length'),
-                              result_naive_n_genes[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_n_genes'),
-                              result_naive_omim[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_omim'), 
-                              result_gbm_nohuman[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_unbiased'),
-                              result_gbm_human[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_knowledge_based'),
-                              result_bay_nohuman[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_unbiased'),
-                              result_bay_human[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_knowledge_based'),
+ 
+    list_results <- bind_rows(result_naive_length %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_length'),
+                              result_naive_n_genes %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_n_genes'),
+                              result_naive_omim %>% select(id, .pred_pathogenic) %>% mutate(tag = 'naive_model_omim'), 
+                              result_gbm_nohuman %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_unbiased'),
+                              result_gbm_human %>% select(id, .pred_pathogenic) %>% mutate(tag = 'gbm_knowledge_based'),
+                              result_bay_nohuman %>% rename(.pred_pathogenic = mean_score) %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_unbiased')
+                              # result_bay_human[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_knowledge_based'),
                               # result_bay_omim[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_special_omim'),
-                              result_both[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_both'))
+                              # result_both[[3]] %>% select(id, .pred_pathogenic) %>% mutate(tag = 'bayesian_both')
+                              )
     
     
     final_results_x_dup <- read_competitors2(
@@ -5586,35 +5628,35 @@ plot_rates3 <- function(x, y, z, tag, tag2,
     #   ungroup() %>%
     #   select(tile_general, tool, precision) %>%
     #   mutate(n_iter = i)
-
-  tmp_precision_sd <- x %>%
-    group_by(clinical) %>%
-    sample_frac(0.8) %>%
-    ungroup() %>%
-    mutate(result_cnvscore = case_when(
-      cnvscore_score >= what_is_pathogenic & clinical == 'pathogenic' ~ 'TP',
-      cnvscore_score >= what_is_pathogenic & clinical == 'benign' ~ 'FP')) %>%
-    mutate(result_structure = case_when(
-      structure_score >= 0.5 & clinical == 'pathogenic' ~ 'TP',
-      structure_score >= 0.5 & clinical == 'benign' ~ 'FP')) %>%
-    select(reliability_score, contains('result')) %>%
-    pivot_longer(-reliability_score, names_to = 'tool', values_to = 'result') %>%
-    filter(result %in% c('TP', 'FP')) %>%
-    mutate(tile_general = reliability_score) %>%
-    count(tile_general, tool, result) %>%
-    pivot_wider(id_cols = c(tile_general, tool),
-                names_from = 'result', values_from = 'n') %>%
-    group_by(tile_general, tool) %>%
-    mutate(FP = ifelse(is.na(FP), 0, FP)) %>%
-    mutate(TP = ifelse(is.na(TP), 0, TP)) %>%
-    mutate(precision = TP / (TP + FP)) %>%
-    ungroup() %>%
-    select(tile_general, tool, precision) %>%
-    mutate(n_iter = i)
-  
-  
-  total_precision_sd <- total_precision_sd %>%
-    bind_rows(tmp_precision_sd)
+# 
+#   tmp_precision_sd <- x %>%
+#     group_by(clinical) %>%
+#     sample_frac(0.8) %>%
+#     ungroup() %>%
+#     mutate(result_cnvscore = case_when(
+#       cnvscore_score >= what_is_pathogenic & clinical == 'pathogenic' ~ 'TP',
+#       cnvscore_score >= what_is_pathogenic & clinical == 'benign' ~ 'FP')) %>%
+#     mutate(result_structure = case_when(
+#       structure_score >= 0.5 & clinical == 'pathogenic' ~ 'TP',
+#       structure_score >= 0.5 & clinical == 'benign' ~ 'FP')) %>%
+#     select(reliability_score, contains('result')) %>%
+#     pivot_longer(-reliability_score, names_to = 'tool', values_to = 'result') %>%
+#     filter(result %in% c('TP', 'FP')) %>%
+#     mutate(tile_general = reliability_score) %>%
+#     count(tile_general, tool, result) %>%
+#     pivot_wider(id_cols = c(tile_general, tool),
+#                 names_from = 'result', values_from = 'n') %>%
+#     group_by(tile_general, tool) %>%
+#     mutate(FP = ifelse(is.na(FP), 0, FP)) %>%
+#     mutate(TP = ifelse(is.na(TP), 0, TP)) %>%
+#     mutate(precision = TP / (TP + FP)) %>%
+#     ungroup() %>%
+#     select(tile_general, tool, precision) %>%
+#     mutate(n_iter = i)
+#   
+#   
+#   total_precision_sd <- total_precision_sd %>%
+#     bind_rows(tmp_precision_sd)
     # bind_rows(tmp_precision_both) %>%
     # bind_rows(tmp_precision_knowledge_based)
   
@@ -5687,33 +5729,33 @@ plot_rates3 <- function(x, y, z, tag, tag2,
   #   mutate(n_iter = i)
   
  
-  tmp_npv_sd <- x %>%
-    group_by(clinical) %>%
-    sample_frac(0.8) %>%
-    ungroup() %>%
-    mutate(result_cnvscore = case_when(
-      cnvscore_score < what_is_benign & clinical == 'benign' ~ 'TN',
-      cnvscore_score < what_is_benign & clinical == 'pathogenic' ~ 'FN')) %>%
-    mutate(result_structure = case_when(
-      structure_score < 0.5 & clinical == 'benign' ~ 'TN',
-      structure_score < 0.5 & clinical == 'pathogenic' ~ 'FN')) %>%
-    select(reliability_score, contains('result')) %>%
-    pivot_longer(-reliability_score, names_to = 'tool', values_to = 'result') %>%
-    filter(result %in% c('TN', 'FN')) %>%
-    mutate(tile_general = reliability_score) %>%
-    count(tile_general, tool, result) %>%
-    pivot_wider(id_cols = c(tile_general, tool), 
-                names_from = 'result', values_from = 'n') %>%
-    group_by(tile_general, tool) %>%
-    mutate(FN = ifelse(is.na(FN), 0, FN)) %>%
-    mutate(TN = ifelse(is.na(TN), 0, TN)) %>%
-    mutate(npv = TN / (TN + FN)) %>%
-    ungroup() %>%
-    select(tile_general, tool, npv) %>%
-    mutate(n_iter = i)
+  # tmp_npv_sd <- x %>%
+  #   group_by(clinical) %>%
+  #   sample_frac(0.8) %>%
+  #   ungroup() %>%
+  #   mutate(result_cnvscore = case_when(
+  #     cnvscore_score < what_is_benign & clinical == 'benign' ~ 'TN',
+  #     cnvscore_score < what_is_benign & clinical == 'pathogenic' ~ 'FN')) %>%
+  #   mutate(result_structure = case_when(
+  #     structure_score < 0.5 & clinical == 'benign' ~ 'TN',
+  #     structure_score < 0.5 & clinical == 'pathogenic' ~ 'FN')) %>%
+  #   select(reliability_score, contains('result')) %>%
+  #   pivot_longer(-reliability_score, names_to = 'tool', values_to = 'result') %>%
+  #   filter(result %in% c('TN', 'FN')) %>%
+  #   mutate(tile_general = reliability_score) %>%
+  #   count(tile_general, tool, result) %>%
+  #   pivot_wider(id_cols = c(tile_general, tool), 
+  #               names_from = 'result', values_from = 'n') %>%
+  #   group_by(tile_general, tool) %>%
+  #   mutate(FN = ifelse(is.na(FN), 0, FN)) %>%
+  #   mutate(TN = ifelse(is.na(TN), 0, TN)) %>%
+  #   mutate(npv = TN / (TN + FN)) %>%
+  #   ungroup() %>%
+  #   select(tile_general, tool, npv) %>%
+  #   mutate(n_iter = i)
   
-  total_npv_sd <- total_npv_sd %>%
-    bind_rows(tmp_npv_sd)
+  # total_npv_sd <- total_npv_sd %>%
+  #   bind_rows(tmp_npv_sd)
     # bind_rows(tmp_npv_both) %>%
     # bind_rows(tmp_npv_knowledge_based)
   
@@ -5758,19 +5800,9 @@ plot_rates3 <- function(x, y, z, tag, tag2,
     sample_frac(0.8) %>%
     ungroup() %>%
     group_by(reliability_score) %>%
-    roc_auc(clinical, cnvscore_score) %>%
+    roc_auc(clinical, .pred_pathogenic) %>%
     mutate(tool = 'cnvscore_score') %>%
     mutate(n_iter = i)
-    ) %>%
-    bind_rows(
-      x %>%
-        group_by(clinical) %>%
-        sample_frac(0.8) %>%
-        ungroup() %>%
-        group_by(reliability_score) %>%
-        roc_auc(clinical, structure_score) %>%
-        mutate(tool = 'structure_code') %>%
-        mutate(n_iter = i)
     )
     # bind_rows(total_auc_both) %>%
     # bind_rows(total_auc_knowledge_based)
@@ -5858,31 +5890,31 @@ plot_rates3 <- function(x, y, z, tag, tag2,
     paste(collapse = ' \n') %>%
     paste0('\n', .)
 
-  tag_sign_precision <-  total_precision_sd %>%
-    select(-n_iter) %>%
-    group_by(tool) %>%
-    wilcox_test(precision ~ tile_general) %>%
-    group_by(tool) %>%
-    slice(2) %>%
-    # select(tool, p.adj) %>%
-    mutate(tag = paste(tool, paste0('(p.value = ', p, ')'))) %>%
-    pull(tag) %>%
-    paste(collapse = ' \n') %>%
-    paste0('\n', .)
-
-  
- tag_sign_npv <-  total_npv_sd %>%
-    filter(tile_general %in% c(1,3)) %>%
-    select(-n_iter) %>%
-    group_by(tool) %>%
-    wilcox_test(npv ~ tile_general) %>%
-    group_by(tool) %>%
-    slice(1) %>%
-    # select(tool, p.adj) %>%
-    mutate(tag = paste(tool, paste0('(p.value = ', p, ')'))) %>%
-    pull(tag) %>%
-    paste(collapse = ' \n') %>%
-    paste0('\n', .)
+ #  tag_sign_precision <-  total_precision_sd %>%
+ #    select(-n_iter) %>%
+ #    group_by(tool) %>%
+ #    wilcox_test(precision ~ tile_general) %>%
+ #    group_by(tool) %>%
+ #    slice(2) %>%
+ #    # select(tool, p.adj) %>%
+ #    mutate(tag = paste(tool, paste0('(p.value = ', p, ')'))) %>%
+ #    pull(tag) %>%
+ #    paste(collapse = ' \n') %>%
+ #    paste0('\n', .)
+ # 
+ #  
+ # tag_sign_npv <-  total_npv_sd %>%
+ #    filter(tile_general %in% c(1,3)) %>%
+ #    select(-n_iter) %>%
+ #    group_by(tool) %>%
+ #    wilcox_test(npv ~ tile_general) %>%
+ #    group_by(tool) %>%
+ #    slice(1) %>%
+ #    # select(tool, p.adj) %>%
+ #    mutate(tag = paste(tool, paste0('(p.value = ', p, ')'))) %>%
+ #    pull(tag) %>%
+ #    paste(collapse = ' \n') %>%
+ #    paste0('\n', .)
  
   # }
  
@@ -5907,55 +5939,57 @@ plot_rates3 <- function(x, y, z, tag, tag2,
    theme(axis.text.x = element_text(angle = 45, hjust=1),
          plot.subtitle = element_text(size = 10))
  
- 
- precision_sd <- total_precision_sd %>%
-   group_by(tool, tile_general) %>%
-   summarise(
-     mean = mean(precision),
-     sd = sd(precision),
-     n = n(),
-     se = sd / sqrt(n)
-   ) %>%
-   ggplot(aes(as.factor(tile_general), mean)) +
-   geom_smooth(aes(group = tool, fill = tool, color = tool)) +
-   geom_point(aes(fill = tool), shape = 21, color = 'black') +
-   scale_y_continuous(label = percent) +
-   coord_cartesian(ylim = c(limit_y,1)) +
-   geom_pointrange(aes(ymin = mean - se, ymax = mean + se)) +
-   theme_minimal() +
-   labs(title = paste(tag, 'dataset (Precision) - ', tag2),
-        subtitle = paste0(tmp_sub, tag_sign_precision),
-        x = 'Reliability score (percentile(residual))', y = 'Precision (%)') +
-   theme(axis.text.x = element_text(angle = 45, hjust=1),
-         plot.subtitle = element_text(size = 10))
- 
+ # 
+ # precision_sd <- total_precision_sd %>%
+ #   group_by(tool, tile_general) %>%
+ #   summarise(
+ #     mean = mean(precision),
+ #     sd = sd(precision),
+ #     n = n(),
+ #     se = sd / sqrt(n)
+ #   ) %>%
+ #   ggplot(aes(as.factor(tile_general), mean)) +
+ #   geom_smooth(aes(group = tool, fill = tool, color = tool)) +
+ #   geom_point(aes(fill = tool), shape = 21, color = 'black') +
+ #   scale_y_continuous(label = percent) +
+ #   coord_cartesian(ylim = c(limit_y,1)) +
+ #   geom_pointrange(aes(ymin = mean - se, ymax = mean + se)) +
+ #   theme_minimal() +
+ #   labs(title = paste(tag, 'dataset (Precision) - ', tag2),
+ #        subtitle = paste0(tmp_sub, tag_sign_precision),
+ #        x = 'Reliability score (percentile(residual))', y = 'Precision (%)') +
+ #   theme(axis.text.x = element_text(angle = 45, hjust=1),
+ #         plot.subtitle = element_text(size = 10))
+ # 
+ #  
+ #  
+ #  npv_sd <- total_npv_sd %>%
+ #    group_by(tool, tile_general) %>%
+ #    summarise(
+ #      mean = mean(npv),
+ #      sd = sd(npv),
+ #      n = n(),
+ #      se = sd / sqrt(n)
+ #    ) %>%
+ #    ggplot(aes(as.factor(tile_general), mean)) +
+ #    geom_smooth(aes(group = tool, fill = tool, color = tool)) +
+ #    geom_point(aes(fill = tool), shape = 21, color = 'black') +
+ #    scale_y_continuous(label = percent) +
+ #    coord_cartesian(ylim = c(limit_y,1)) +
+ #    geom_pointrange(aes(ymin = mean - se, ymax = mean + se)) +
+ #    theme_minimal() +
+ #    labs(title = paste(tag, 'dataset (NPV) - ', tag2),
+ #         subtitle = paste0(tmp_sub, tag_sign_npv),
+ #         x = 'Reliability score (percentile(residual))', y = 'NPV (%)') +
+ #    theme(axis.text.x = element_text(angle = 45, hjust=1),
+ #          plot.subtitle = element_text(size = 10))
   
-  
-  npv_sd <- total_npv_sd %>%
-    group_by(tool, tile_general) %>%
-    summarise(
-      mean = mean(npv),
-      sd = sd(npv),
-      n = n(),
-      se = sd / sqrt(n)
-    ) %>%
-    ggplot(aes(as.factor(tile_general), mean)) +
-    geom_smooth(aes(group = tool, fill = tool, color = tool)) +
-    geom_point(aes(fill = tool), shape = 21, color = 'black') +
-    scale_y_continuous(label = percent) +
-    coord_cartesian(ylim = c(limit_y,1)) +
-    geom_pointrange(aes(ymin = mean - se, ymax = mean + se)) +
-    theme_minimal() +
-    labs(title = paste(tag, 'dataset (NPV) - ', tag2),
-         subtitle = paste0(tmp_sub, tag_sign_npv),
-         x = 'Reliability score (percentile(residual))', y = 'NPV (%)') +
-    theme(axis.text.x = element_text(angle = 45, hjust=1),
-          plot.subtitle = element_text(size = 10))
+  auc_plot
 
-  precision_sd +
-    npv_sd +
-    auc_plot +
-    plot_layout(nrow = 1)
+  # precision_sd +
+  #   npv_sd +
+  #   auc_plot +
+  #   plot_layout(nrow = 1)
 
 }
 
@@ -6615,199 +6649,505 @@ features_enrichment <- function(df_features, training_del, training_dup) {
 # FEATURES ENRICHMENT 
 # ------------------------------------------------------------------------------
 
-
-get_reliability_score_rank_sd <- function(ref, predictions, trendline) {
-  
-  
-  # ref <- ref_quantiles
-  # predictions <-   ref_sd_scenario_4[[3]]
-  # trendline <- trendline_clinvar
-  
-  n_total_rows <- nrow(predictions)
-  
-  vector_reliability_score <- c()
-  
-  for (i in 1:nrow(predictions)) {
-    #   
-      print(paste0(i, '/', n_total_rows))
-
-      tmp_score_bin <- ref %>%
-        select(score_interval, min_score, max_score) %>%
-        pivot_longer(-score_interval, names_to = 'tag', values_to = 'value') %>%
-        mutate(dist_score = abs(predictions[i,]$.pred_pathogenic - value)) %>%
-        arrange(dist_score) %>%
-        slice_head(n = 1) %>%
-        pull(score_interval)
-
-      tmp_to_vector <- ref %>%
-        filter(score_interval == tmp_score_bin) %>%
-        select(sd) %>%
-        mutate(tag = 'ref') %>%
-        bind_rows(tibble(sd = predictions[i,]$sd,
-                         tag = 'obs')) %>%
-        mutate(chunk = ntile(sd, 3)) %>%
-        filter(tag == 'obs') %>%
-        pull(chunk)
-
-      vector_reliability_score <- c(vector_reliability_score, tmp_to_vector)
-    
-  }
-  
-  predictions <- predictions %>%
-    mutate(reliability_score = vector_reliability_score)
-  
-  return(predictions)
-  
-}
+# 
+# get_reliability_score_rank_sd <- function(ref, predictions, trendline) {
+#   
+#   
+#   # ref <- ref_quantiles
+#   # predictions <-   ref_sd_scenario_4[[3]]
+#   # trendline <- trendline_clinvar
+#   
+#   n_total_rows <- nrow(predictions)
+#   
+#   vector_reliability_score <- c()
+#   
+#   for (i in 1:nrow(predictions)) {
+#     #   
+#       print(paste0(i, '/', n_total_rows))
+# 
+#       tmp_score_bin <- ref %>%
+#         select(score_interval, min_score, max_score) %>%
+#         pivot_longer(-score_interval, names_to = 'tag', values_to = 'value') %>%
+#         mutate(dist_score = abs(predictions[i,]$.pred_pathogenic - value)) %>%
+#         arrange(dist_score) %>%
+#         slice_head(n = 1) %>%
+#         pull(score_interval)
+# 
+#       tmp_to_vector <- ref %>%
+#         filter(score_interval == tmp_score_bin) %>%
+#         select(sd) %>%
+#         mutate(tag = 'ref') %>%
+#         bind_rows(tibble(sd = predictions[i,]$sd,
+#                          tag = 'obs')) %>%
+#         mutate(chunk = ntile(sd, 3)) %>%
+#         filter(tag == 'obs') %>%
+#         pull(chunk)
+# 
+#       vector_reliability_score <- c(vector_reliability_score, tmp_to_vector)
+#     
+#   }
+#   
+#   predictions <- predictions %>%
+#     mutate(reliability_score = vector_reliability_score)
+#   
+#   return(predictions)
+#   
+# }
 
 # ------------------------------------------------------------------------------
 # FEATURES ENRICHMENT 
 # ------------------------------------------------------------------------------
 
+# 
+# get_reliability_score <- function(ref, predictions, trendline, type = 'res') {
+#   
+#   
+#   # ref <- ref_quantiles
+#   # predictions <-   ref_sd_clinvar_del[[3]]
+#   # trendline <- trendline_clinvar
+#   
+#   n_total_rows <- nrow(predictions)
+#   
+#   vector_reliability_score <- c()
+#   
+#   for (i in 1:nrow(predictions)) {
+#     #   
+# 
+#         tmp_score_bin <- ref %>%
+#           distinct(score_interval, min_score, max_score) %>%
+#           filter(min_score < predictions[i,]$.pred_pathogenic &
+#                  max_score > predictions[i,]$.pred_pathogenic) %>%
+#           pull(score_interval)
+#         
+#         if (length(tmp_score_bin) == 0) {
+# 
+#           tmp_score_bin <- ref %>%
+#             select(score_interval, min_score, max_score) %>%
+#             mutate(mid_score = (min_score + max_score)/2) %>%
+#             pivot_longer(-c(score_interval, mid_score), names_to = 'tag',
+#                          values_to = 'value') %>%
+#             mutate(dist_score = abs(predictions[i,]$.pred_pathogenic - value)) %>%
+#             mutate(dist_midscore = abs(predictions[i,]$.pred_pathogenic - mid_score)) %>%
+#             arrange(dist_midscore) %>%
+#             slice_head(n = 1) %>%
+#             pull(score_interval)
+# 
+#         }
+#         
+#         
+#         if (type == 'sd') {
+#     
+#           print(paste0(i, '/', n_total_rows, 'SD'))
+#           
+#     tmp_to_vector <- ref %>%
+#       filter(score_interval == tmp_score_bin) %>%
+#       select(sd) %>%
+#       mutate(tag = 'ref') %>%
+#       bind_rows(tibble(sd = predictions[i,]$sd,
+#                        tag = 'obs')) %>%
+#       mutate(chunk = ntile(sd, 3)) %>%
+#       filter(tag == 'obs') %>%
+#       pull(chunk)
+#     
+#         } else {
+#           
+#           print(paste0(i, '/', n_total_rows, '- RESIDUALS'))
+#           
+#           
+#           tmp_y <- predict(trendline,
+#                            tibble(.pred_pathogenic = predictions[i,]$.pred_pathogenic))
+#           
+#           tmp_residual <- as.numeric(predictions[i,]$sd - tmp_y)
+#           
+#           tmp_to_vector <- ref %>%
+#             filter(score_interval == tmp_score_bin) %>%
+#             select(gam_residuals) %>%
+#             mutate(tag = 'ref') %>%
+#             bind_rows(tibble(gam_residuals = tmp_residual,
+#                              tag = 'obs')) %>%
+#             mutate(chunk = ntile(gam_residuals, 3)) %>%
+#             filter(tag == 'obs') %>%
+#             pull(chunk)
+# 
+#         }
+#     
+#     vector_reliability_score <- c(vector_reliability_score, tmp_to_vector)
+#     
+#   }
+#   
+#   predictions <- predictions %>%
+#     mutate(reliability_score = vector_reliability_score)
+#   
+#   return(predictions)
+#   
+# }
+# 
 
-get_reliability_score <- function(ref, predictions, trendline, type = 'res') {
+get_reliability <- function(predictions, ref, which_trend) {
   
+  # ref <- ref_clinvar_del[[1]]
+  # predictions <-  clinvar_clinvar_score
+  # which_trend <- ref_clinvar_del[[2]]
   
-  # ref <- ref_quantiles
-  # predictions <-   ref_sd_clinvar_del[[3]]
-  # trendline <- trendline_clinvar
-  
+
   n_total_rows <- nrow(predictions)
   
-  vector_reliability_score <- c()
+  general_prevalence <- predictions %>% count(clinical) %>% mutate(perc = n / sum(n)) %>% filter(clinical == 'pathogenic') %>% pull(perc)
+  
+  tmp_final_tibble <- tibble()
+  
+  track_dup <- tibble()
   
   for (i in 1:nrow(predictions)) {
+    
+    print(paste0(i, '/', nrow(predictions)))
+    
     #   
+    
+        tmp_id <- predictions[i,]$id
+
+        tmp_y <- predict(which_trend,
+                tibble(mean_score = predictions[i,]$mean_score))
+
+        tmp_residual <- as.numeric(predictions[i,]$unc_data - tmp_y)
+
+        # Calculate score bin
 
         tmp_score_bin <- ref %>%
           distinct(score_interval, min_score, max_score) %>%
-          filter(min_score < predictions[i,]$.pred_pathogenic &
-                 max_score > predictions[i,]$.pred_pathogenic) %>%
+          filter(min_score <= predictions[i,]$mean_score) %>%
+          filter(max_score >= predictions[i,]$mean_score) %>%
           pull(score_interval)
         
-        if (length(tmp_score_bin) == 0) {
-
+        if (length(tmp_score_bin) == 0 | length(tmp_score_bin) > 1) {
+          
           tmp_score_bin <- ref %>%
-            select(score_interval, min_score, max_score) %>%
+            distinct(score_interval, min_score, max_score) %>%
             mutate(mid_score = (min_score + max_score)/2) %>%
-            pivot_longer(-c(score_interval, mid_score), names_to = 'tag',
-                         values_to = 'value') %>%
-            mutate(dist_score = abs(predictions[i,]$.pred_pathogenic - value)) %>%
-            mutate(dist_midscore = abs(predictions[i,]$.pred_pathogenic - mid_score)) %>%
-            arrange(dist_midscore) %>%
+            mutate(diff_mid_score = abs(mid_score - predictions[i,]$mean_score)) %>%
+            arrange(diff_mid_score) %>%
             slice_head(n = 1) %>%
             pull(score_interval)
-
         }
         
+        # Special case for score < 0.02
         
-        if (type == 'sd') {
-    
-          print(paste0(i, '/', n_total_rows, 'SD'))
+        if (predictions[i,]$mean_score <= 0.02) {
           
-    tmp_to_vector <- ref %>%
-      filter(score_interval == tmp_score_bin) %>%
-      select(sd) %>%
-      mutate(tag = 'ref') %>%
-      bind_rows(tibble(sd = predictions[i,]$sd,
-                       tag = 'obs')) %>%
-      mutate(chunk = ntile(sd, 3)) %>%
-      filter(tag == 'obs') %>%
-      pull(chunk)
-    
+          tmp_tibble <- tibble(id = tmp_id, 
+                               reliability_score = 3, 
+                               residual = tmp_residual, 
+                               score_assigned = tmp_score_bin, 
+                               rank_residual = 1 
+          )
+          
+          tmp_final_tibble <- tmp_final_tibble %>% bind_rows(tmp_tibble)
+          
+          track_dup <- track_dup %>% bind_rows(tibble(iter = i, n_row = nrow(tmp_tibble)))
+          
+          
+          next
+          
+          
+        }
+        
+        # Get ranking
+        
+        rank_to_vector <- ref %>%
+          filter(score_interval == tmp_score_bin) %>%
+          distinct(rank_residuals, min_rank_residuals, max_rank_residuals) %>% 
+          filter(min_rank_residuals <= tmp_residual & 
+                   max_rank_residuals >= tmp_residual) %>%
+          pull(rank_residuals)
+        
+
+        if (length(rank_to_vector) == 0 | length(rank_to_vector) > 1) {
+          
+          rank_to_vector <- ref %>%
+            filter(score_interval == tmp_score_bin) %>%
+            distinct(rank_residuals, min_rank_residuals, max_rank_residuals) %>%
+            mutate(mid_rank = (min_rank_residuals + max_rank_residuals)/2) %>%
+            mutate(diff_mid_rank = abs(mid_rank - tmp_residual)) %>%
+            arrange(diff_mid_rank) %>%
+            slice_head(n = 1) %>%
+            pull(rank_residuals)
+        
+      }
+
+        
+        # Calculate 1-2-3 bin
+        
+        min_gam <- ref %>%
+          filter(score_interval == tmp_score_bin) %>%
+          filter(reliability_score == 3) %>%
+          summarise(max_gam_residuals = max(gam_residuals),
+                    min_gam_residuals = min(gam_residuals)) %>%
+          pull(min_gam_residuals)
+        
+        max_gam <- ref %>%
+          filter(score_interval == tmp_score_bin) %>%
+          filter(reliability_score == 1) %>%
+          summarise(max_gam_residuals = max(gam_residuals),
+                    min_gam_residuals = min(gam_residuals)) %>%
+          pull(max_gam_residuals)
+        
+        if (min_gam >= tmp_residual) {
+          
+          tmp_to_vector <- 3
+          
+          
+        } else if (tmp_residual >= max_gam)  {
+        
+          tmp_to_vector <- 1
+          
+          
         } else {
+        
+        tmp_to_vector <- ref %>%
+          filter(score_interval == tmp_score_bin) %>%
+          group_by(reliability_score) %>%
+          summarise(max_gam_residuals = max(gam_residuals),
+                    min_gam_residuals = min(gam_residuals)) %>%
+          filter(min_gam_residuals <= tmp_residual & 
+                   max_gam_residuals >= tmp_residual) %>%
+          pull(reliability_score)
+        
+        }
+        
+        if (length(tmp_to_vector) == 0 | length(tmp_to_vector) > 1) {
           
-          print(paste0(i, '/', n_total_rows, '- RESIDUALS'))
-          
-          
-          tmp_y <- predict(trendline,
-                           tibble(.pred_pathogenic = predictions[i,]$.pred_pathogenic))
-          
-          tmp_residual <- as.numeric(predictions[i,]$sd - tmp_y)
           
           tmp_to_vector <- ref %>%
             filter(score_interval == tmp_score_bin) %>%
-            select(gam_residuals) %>%
-            mutate(tag = 'ref') %>%
-            bind_rows(tibble(gam_residuals = tmp_residual,
-                             tag = 'obs')) %>%
-            mutate(chunk = ntile(gam_residuals, 3)) %>%
-            filter(tag == 'obs') %>%
-            pull(chunk)
-
+            group_by(reliability_score) %>%
+            summarise(max_gam_residuals = max(gam_residuals),
+                      min_gam_residuals = min(gam_residuals)) %>%
+            distinct(reliability_score, min_gam_residuals, max_gam_residuals) %>%
+            mutate(mid_point = (min_gam_residuals + max_gam_residuals)/2) %>%
+            mutate(diff_mid_rank = abs(mid_point - tmp_residual)) %>%
+            arrange(diff_mid_rank) %>%
+            slice_head(n = 1) %>%
+            pull(reliability_score)
+          
         }
-    
-    vector_reliability_score <- c(vector_reliability_score, tmp_to_vector)
-    
-  }
+          
+          tmp_tibble <- tibble(id = tmp_id, 
+                               reliability_score = tmp_to_vector, 
+                               residual = tmp_residual, 
+                               score_assigned = tmp_score_bin, 
+                               rank_residual = rank_to_vector 
+                               # ppv_prev_general = tmp_ppv_prev_general,
+                               # ppv_prev_relative = tmp_ppv_prev_relative,
+                               )
+          
+          tmp_final_tibble <- tmp_final_tibble %>% bind_rows(tmp_tibble)
+          
+          track_dup <- track_dup %>% bind_rows(tibble(iter = i, n_row = nrow(tmp_tibble)))
+          
+          
+          
+        }
   
   predictions <- predictions %>%
-    mutate(reliability_score = vector_reliability_score)
+    left_join(tmp_final_tibble, by = 'id') 
   
-  return(predictions)
   
-}
+  tmp_final_ppv <- tibble()
 
-
-get_reliability_score_mid <- function(ref, predictions) {
-  
-  # ref <- ref_quantiles
-  # predictions <- ref_sd_clinvar_del[[3]]
-  
-  
-  n_total_rows <- nrow(predictions)
-  
-  vector_reliability_score <- c()
-  
   for (i in 1:nrow(predictions)) {
-    #   
-    print(paste0(i, '/', n_total_rows))
-    
-        # tmp_y <- predict(trendline_clinvar,
-        #         tibble(.pred_pathogenic = predictions[i,]$.pred_pathogenic))
-        # 
-        # tmp_residual <- as.numeric(predictions[i,]$sd - tmp_y)
-    
-    tmp_score_bin <- ref %>%
-      distinct(score_interval, min_score, max_score) %>%
-      mutate(mid_score = (max_score - min_score)/2) %>%
-      mutate(diff_mid_score = abs(mid_score - predictions[i,]$.pred_pathogenic)) %>%
-        arrange(diff_mid_score) %>%
-        slice_head(n = 1) %>%
-      pull(score_interval)
-    
-    tmp_to_vector <- ref %>%
-      filter(score_interval == tmp_score_bin) %>%
-      group_by(reliability_score) %>%
-      # summarise(median_sd = median(sd)) %>%
-      summarise(max_sd = max(sd),
-                min_sd = min(sd)) %>%
-      mutate(mid_sd =  (max_sd - min_sd)/2) %>%
-      mutate(diff_mid_sd = abs(mid_sd - predictions[i,]$sd)) %>%
-      arrange(diff_mid_sd) %>%
-      slice_head(n = 1) %>%
-      pull(reliability_score)
-    
-    
-    # tmp_to_vector <- ref %>%
-    #   filter(score_interval == tmp_score_bin) %>%
-    #   group_by(reliability_score) %>%
-    #   summarise(max_res = max(gam_residuals),
-    #             min_res = min(gam_residuals)) %>%
-    #   mutate(mid_res =  (max_res - min_res)/2) %>%
-    #   mutate(diff_mid_res = abs(mid_res - tmp_residual)) %>%
-    #   arrange(diff_mid_res) %>%
-    #   slice_head(n = 1) %>%
-    #   pull(reliability_score)
-    
 
-    
-    vector_reliability_score <- c(vector_reliability_score, tmp_to_vector)
-    
+        # Calculate precision
+
+    print(paste0('PPV calculation - ',i, '/', n_total_rows))
+
+    tmp_id <- predictions[i,]$id
+
+    # Calculate metric NO conditioned by the reliability score
+    calculate_precision_nocond <- ref %>%
+      mutate(result =
+               case_when(
+                 mean_score >= predictions[i,]$mean_score & clinical == 'pathogenic' ~ 'TP',
+                 mean_score >= predictions[i,]$mean_score & clinical == 'benign' ~ 'FP',
+                 mean_score < predictions[i,]$mean_score & clinical == 'pathogenic' ~ 'FN',
+                 mean_score < predictions[i,]$mean_score & clinical ==  'benign' ~ 'TN'
+               )) %>%
+      count(result)
+
+
+    if (nrow(calculate_precision_nocond) < 4) {
+
+      if (!'FP' %in% calculate_precision_nocond$result) {
+
+        calculate_precision_nocond <- calculate_precision_nocond %>% bind_rows(tibble(result = 'FP', n = 0))
+      }
+      if (!'TP' %in% calculate_precision_nocond$result) {
+
+        calculate_precision_nocond <- calculate_precision_nocond %>% bind_rows(tibble(result = 'TP', n = 0))
+      }
+
+      if (!'TN' %in% calculate_precision_nocond$result) {
+
+        calculate_precision_nocond <- calculate_precision_nocond %>% bind_rows(tibble(result = 'TN', n = 0))
+      }
+      if (!'FN' %in% calculate_precision_nocond$result) {
+
+        calculate_precision_nocond <- calculate_precision_nocond %>% bind_rows(tibble(result = 'FN', n = 0))
+      }
+    }
+
+    calculate_precision_nocond <- calculate_precision_nocond %>%
+      pivot_wider(id_cols = NULL, names_from = result, values_from = n)
+
+
+        # Calculate metric conditioned by the reliability score
+        calculate_precision_yescond <- ref %>%
+          mutate(result =
+                   case_when(
+                     mean_score >= predictions[i,]$mean_score & clinical == 'pathogenic' ~ 'TP',
+                     mean_score >= predictions[i,]$mean_score & clinical == 'benign' ~ 'FP',
+                     mean_score < predictions[i,]$mean_score & clinical == 'pathogenic' ~ 'FN',
+                     mean_score < predictions[i,]$mean_score & clinical ==  'benign' ~ 'TN'
+                   )) %>%
+          filter(rank_residuals >= predictions[i,]$rank_residual) %>%
+          count(result)
+
+
+        if (nrow(calculate_precision_yescond) < 4) {
+
+          if (!'FP' %in% calculate_precision_yescond$result) {
+
+            calculate_precision_yescond <- calculate_precision_yescond %>% bind_rows(tibble(result = 'FP', n = 0))
+          }
+          if (!'TP' %in% calculate_precision_yescond$result) {
+
+            calculate_precision_yescond <- calculate_precision_yescond %>% bind_rows(tibble(result = 'TP', n = 0))
+          }
+
+          if (!'TN' %in% calculate_precision_yescond$result) {
+
+            calculate_precision_yescond <- calculate_precision_yescond %>% bind_rows(tibble(result = 'TN', n = 0))
+          }
+          if (!'FN' %in% calculate_precision_yescond$result) {
+
+            calculate_precision_yescond <- calculate_precision_yescond %>% bind_rows(tibble(result = 'FN', n = 0))
+          }
+        }
+
+        calculate_precision_yescond <- calculate_precision_yescond %>%
+        pivot_wider(id_cols = NULL, names_from = result, values_from = n)
+
+        # Calculate metric conditioned by the reliability score on THE TESTING SET
+        calculate_precision_yescondtest <- predictions %>%
+          mutate(result =
+                   case_when(
+                     mean_score >= predictions[i,]$mean_score & clinical == 'pathogenic' ~ 'TP',
+                     mean_score >= predictions[i,]$mean_score & clinical == 'benign' ~ 'FP',
+                     mean_score < predictions[i,]$mean_score & clinical == 'pathogenic' ~ 'FN',
+                     mean_score < predictions[i,]$mean_score & clinical ==  'benign' ~ 'TN'
+                   )) %>%
+          filter(rank_residual >= predictions[i,]$rank_residual) %>%
+          count(result)
+
+
+        if (nrow(calculate_precision_yescondtest) < 4) {
+
+          if (!'FP' %in% calculate_precision_yescondtest$result) {
+
+            calculate_precision_yescondtest <- calculate_precision_yescondtest %>% bind_rows(tibble(result = 'FP', n = 0))
+          }
+          if (!'TP' %in% calculate_precision_yescondtest$result) {
+
+            calculate_precision_yescondtest <- calculate_precision_yescondtest %>% bind_rows(tibble(result = 'TP', n = 0))
+          }
+
+          if (!'TN' %in% calculate_precision_yescondtest$result) {
+
+            calculate_precision_yescondtest <- calculate_precision_yescondtest %>% bind_rows(tibble(result = 'TN', n = 0))
+          }
+          if (!'FN' %in% calculate_precision_yescondtest$result) {
+
+            calculate_precision_yescondtest <- calculate_precision_yescondtest %>% bind_rows(tibble(result = 'FN', n = 0))
+          }
+        }
+
+        calculate_precision_yescondtest <- calculate_precision_yescondtest %>%
+          pivot_wider(id_cols = NULL, names_from = result, values_from = n)
+
+
+        tmp_sensitivity_nocond <- calculate_precision_nocond %>%
+          mutate(sensitivity = TP / (TP + FN)) %>%
+          pull(sensitivity)
+
+        tmp_specificity_nocond <- calculate_precision_nocond %>%
+          mutate(specificity = TN  / (TN + FP)) %>%
+          pull(specificity)
+
+
+        tmp_sensitivity_yescond <- calculate_precision_yescond %>%
+          mutate(sensitivity = TP / (TP + FN)) %>%
+          pull(sensitivity)
+
+        tmp_specificity_yescond <- calculate_precision_yescond %>%
+          mutate(specificity = TN  / (TN + FP)) %>%
+          pull(specificity)
+
+        tmp_sensitivity_yescondtest <- calculate_precision_yescondtest %>%
+          mutate(sensitivity = TP / (TP + FN)) %>%
+          pull(sensitivity)
+
+        tmp_specificity_yescondtest <- calculate_precision_yescondtest %>%
+          mutate(specificity = TN  / (TN + FP)) %>%
+          pull(specificity)
+
+
+
+
+        relative_prevalence <- predictions %>%
+          filter(rank_residual >= predictions[i,]$rank_residual) %>%
+          count(clinical) %>%
+          mutate(perc = n / sum(n)) %>%
+          filter(clinical == 'pathogenic') %>%
+          pull(perc)
+
+
+        # tmp_ppv_prev_general <- (tmp_sensitivity_yescond * general_prevalence) / ((tmp_sensitivity_yescond * general_prevalence) + (1 - tmp_specificity_yescond) * (1 - general_prevalence))
+        tmp_ppv_prev_relative <- (tmp_sensitivity_yescond * relative_prevalence) / ((tmp_sensitivity_yescond * relative_prevalence) + (1 - tmp_specificity_yescond) * (1 - relative_prevalence))
+        tmp_ppv_prev_noreli_yesprev <- (tmp_sensitivity_nocond * relative_prevalence) / ((tmp_sensitivity_nocond * relative_prevalence) + (1 - tmp_specificity_nocond) * (1 - relative_prevalence))
+
+
+        tmp_tibble <- tibble(id = tmp_id,
+                             # ppv_prev_general = tmp_ppv_prev_general,
+                             ppv_noreli_yesprev = tmp_ppv_prev_noreli_yesprev,
+                             ppv_yesreli_yesprev = tmp_ppv_prev_relative,
+                             sample_size_yescond = sum(calculate_precision_yescond[1,]),
+                             sensitivity_yescond = tmp_sensitivity_yescond,
+                             specificity_yescond = tmp_specificity_yescond,
+
+                             sample_size_yescondtest = sum(calculate_precision_yescondtest[1,]),
+                             sensitivity_yescondtest = tmp_sensitivity_yescondtest,
+                             specificity_yescondtest = tmp_specificity_yescondtest,
+
+                             sample_size_nocond = sum(calculate_precision_nocond[1,]),
+                             sensitivity_nocond = tmp_sensitivity_nocond,
+                             specificity_nocond = tmp_specificity_nocond,
+                             relative_prevalence = relative_prevalence
+        )
+
+        tmp_final_ppv <- tmp_final_ppv %>% bind_rows(tmp_tibble)
+
   }
-  
+
+
   predictions <- predictions %>%
-    mutate(reliability_score = vector_reliability_score)
+    left_join(tmp_final_ppv, by = 'id') %>%
+    mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
+    mutate(dor_nocond = (sensitivity_nocond * specificity_nocond) / ((1 - sensitivity_nocond )*(1 - specificity_nocond))) %>%
+    mutate(dor_yescond = (sensitivity_yescond * specificity_yescond) / ((1 - sensitivity_yescond )*(1 - specificity_yescond))) %>%
+    mutate(dor_yescondtest = (sensitivity_yescondtest * specificity_yescondtest) / ((1 - sensitivity_yescondtest )*(1 - specificity_yescondtest)))
+
+
+  return(predictions)
+
   
 }
 
@@ -6923,55 +7263,175 @@ cleaning_tables <- function(x) {
 # ------------------------------------------------------------------------------
 
 
-generate_table_rel <- function(x, y, tag = '') {
+generate_table_rel <- function(x, y, tag = '', tag2 = 'Deletion', 
+                               threshold = 0.5, 
+                               metric = 'auc') {
   
   # x <- result_clinvar_del
-  # y <- ref_sd_clinvar_del_real
+  # y <- res_df
+  # tag <- 'ClinVar'
+  # tag2 <- 'Deletions'
+  # metric <- 'sensitivity'
+  
+
+  
+
+  
+
   
   
-  tmp_all_auroc <- y %>% 
-    select(id, clinical) %>%
-    left_join(x, by = 'id') %>%
-    group_by(tag) %>%
-    roc_auc(clinical, .pred_pathogenic) %>%
-    rename(All = .estimate) %>%
-    select(tag, All)
-  
-  y %>% 
-    select(id, reliability_score, clinical) %>%
-    left_join(x, by = 'id') %>%
-    group_by(tag, reliability_score) %>%
-    roc_auc(clinical, .pred_pathogenic) %>%
-    rename(auroc = .estimate) %>%
-    select(tag, reliability_score, auroc) %>%
-    mutate(reliability_score = case_when(
-      reliability_score == 1 ~ 'Low',
-      reliability_score == 2 ~ 'Medium',
-      reliability_score == 3 ~ 'High'
-    )) %>%
-    pivot_wider(tag, names_from = reliability_score, values_from = auroc)  %>%
-    left_join(tmp_all_auroc) %>%
-    select(tag, All, Low, Medium, High) %>%
-    cleaning_tables() %>%
-    mutate(`Diff. Low-High` = Low - High) %>%
-    arrange(desc(All)) %>%
-    rename(Model = tag) %>%
-    filter( Model %in% c('TADA', 'STRVCTVRE', 'CNVscore', 'X-CNV')) %>%
-    map_dfr(function(x) {
-      if (is.numeric(x)) {
-        round(x,3)*100
-      } else {
-        x
-      }
-        
-    }
-    ) %>%
+  if (metric == 'auc') {
     
-    gt() %>%
-    tab_header(
-      title = glue("{tag} - Deletion CNVs (n={format(nrow(y), big.mark = ',')})"),
-    ) %>%
-    cols_align(align = 'center')
+    
+    tmp_all_metric <- y %>% 
+      select(id, clinical) %>%
+      left_join(x, by = 'id') %>%
+      group_by(tag) %>%
+      roc_auc(clinical, .pred_pathogenic) %>%
+      rename(All = .estimate) %>%
+      select(tag, All)
+    
+    
+    y %>% 
+      select(id, reliability_score, clinical) %>%
+      left_join(x, by = 'id') %>%
+      group_by(tag, reliability_score) %>%
+      roc_auc(clinical, .pred_pathogenic) %>%
+      rename(auroc = .estimate) %>%
+      select(tag, reliability_score, auroc) %>%
+      mutate(reliability_score = case_when(
+        reliability_score == 1 ~ 'Low',
+        reliability_score == 2 ~ 'Medium',
+        reliability_score == 3 ~ 'High'
+      )) %>%
+      pivot_wider(tag, names_from = reliability_score, values_from = auroc)  %>%
+      left_join(tmp_all_metric) %>%
+      select(tag, All, Low, Medium, High) %>%
+      cleaning_tables() %>%
+      mutate(`Diff. Low-High` = Low - High) %>%
+      arrange(desc(All)) %>%
+      rename(Model = tag) %>%
+      filter( Model %in% c('TADA', 'STRVCTVRE', 'CNVscore', 'X-CNV', 'CADD-SV')) %>%
+      map_dfr(function(x) {
+        if (is.numeric(x)) {
+          round(x,3)*100
+        } else {
+          x
+        }
+        
+      }
+      ) %>%
+      
+      gt() %>%
+      tab_header(
+        title = glue("{tag} - {tag2} CNVs (n={format(nrow(y), big.mark = ',')})"),
+      ) %>%
+      cols_align(align = 'center')
+    
+  } else if (metric == 'sensitivity') {
+    
+    tmp_sensitivity <- y %>%
+      select(id, clinical, reliability_score) %>%
+      left_join(x, by = 'id') %>%
+      mutate(result =
+               case_when(
+                 .pred_pathogenic >= threshold & clinical == 'pathogenic' ~ 'TP',
+                 .pred_pathogenic >= threshold & clinical == 'benign' ~ 'FP',
+                 .pred_pathogenic < threshold & clinical == 'pathogenic' ~ 'FN',
+                 .pred_pathogenic < threshold & clinical ==  'benign' ~ 'TN'
+               ))
+    
+    tmp_sensitivity_all <- tmp_sensitivity %>%
+      count(tag, result) %>%
+      pivot_wider(id_cols = tag, names_from = result, values_from = n) %>%
+      mutate(sensitivity = TP / (TP + FN)) %>%
+      select(tag, sensitivity)
+    
+    tmp_sensitivity %>%
+      count(tag, reliability_score, result) %>%
+      pivot_wider(id_cols = c(tag, reliability_score), names_from = result, values_from = n) %>%
+      mutate(sensitivity = TP / (TP + FN)) %>%
+      select(tag, reliability_score, sensitivity) %>%
+      pivot_wider(id_cols = tag, 
+                  names_from = reliability_score, 
+                  values_from = sensitivity) %>%
+      left_join(tmp_sensitivity_all, by = 'tag') %>%
+      cleaning_tables() %>%
+      rename(All = sensitivity, Low = `1`, Medium = `2`, High = `3`, Model = tag) %>%
+      mutate(`Diff. Low-High` = Low - High) %>%
+      
+      select(Model, All, Low, Medium, High, `Diff. Low-High`) %>%
+      filter( Model %in% c('TADA', 'STRVCTVRE', 'CNVscore', 'X-CNV', 'CADD-SV')) %>%
+      map_dfr(function(x) {
+        if (is.numeric(x)) {
+          round(x,3)*100
+        } else {
+          x
+        }
+        
+      }
+      ) %>%
+      
+      gt() %>%
+      tab_header(
+        title = glue("{tag} - {metric} - {tag2} CNVs (n={format(nrow(y), big.mark = ',')})"),
+      ) %>%
+      cols_align(align = 'center')
+
+  } else if (metric == 'specificity') {
+    
+    tmp_specificity <- y %>%
+      select(id, clinical, reliability_score) %>%
+      left_join(x, by = 'id') %>%
+      mutate(result =
+               case_when(
+                 .pred_pathogenic >= threshold & clinical == 'pathogenic' ~ 'TP',
+                 .pred_pathogenic >= threshold & clinical == 'benign' ~ 'FP',
+                 .pred_pathogenic < threshold & clinical == 'pathogenic' ~ 'FN',
+                 .pred_pathogenic < threshold & clinical ==  'benign' ~ 'TN'
+               ))
+    
+    tmp_specificity_all <- tmp_specificity %>%
+      count(tag, result) %>%
+      pivot_wider(id_cols = tag, names_from = result, values_from = n) %>%
+      mutate(specificity = TN / (TN + FP)) %>%
+      select(tag, specificity)
+    
+    tmp_specificity %>%
+      count(tag, reliability_score, result) %>%
+      pivot_wider(id_cols = c(tag, reliability_score), names_from = result, values_from = n) %>%
+      mutate(specificity = TN / (TN + FP)) %>%
+      select(tag, reliability_score, specificity) %>%
+      pivot_wider(id_cols = tag, 
+                  names_from = reliability_score, 
+                  values_from = specificity) %>%
+      left_join(tmp_specificity_all, by = 'tag') %>%
+      cleaning_tables() %>%
+      rename(All = specificity, Low = `1`, Medium = `2`, High = `3`, Model = tag) %>%
+      mutate(`Diff. Low-High` = Low - High) %>%
+      select(Model, All, Low, Medium, High, `Diff. Low-High`) %>%
+      filter( Model %in% c('TADA', 'STRVCTVRE', 'CNVscore', 'X-CNV', 'CADD-SV')) %>%
+      map_dfr(function(x) {
+        if (is.numeric(x)) {
+          round(x,3)*100
+        } else {
+          x
+        }
+        
+      }
+      ) %>%
+      
+      gt() %>%
+      tab_header(
+        title = glue("{tag} - {metric} - {tag2} CNVs (n={format(nrow(y), big.mark = ',')})"),
+      ) %>%
+      cols_align(align = 'center')
+    
+  }
+  
+
+  
+
   
 }
 
@@ -7102,214 +7562,1662 @@ generate_risk_support <- function(x, y) {
   
 }
 
-# almost_clinvar %>%
-#   select(cnvscore_score, sd, reliability_score) %>%
-#   mutate(dataset = 'Clinvar') %>%
-#   bind_rows(almost_decipher %>%
-#               select(cnvscore_score, sd, reliability_score) %>%
-#               mutate(dataset = 'Decipher')
-#               ) %>%
-#   ggplot(aes(reliability_score, sd))
 
-# almost_decipher %>%
-#   mutate(result = case_when(
-#     cnvscore_score >= 0.5 & clinical == 'pathogenic' ~ 'TP',
-#     cnvscore_score < 0.5 & clinical == 'benign' ~ 'TN',
-#     cnvscore_score >= 0.5 & clinical == 'benign' ~ 'FP',
-#     cnvscore_score < 0.5 & clinical == 'pathogenic' ~ 'FN'
-#   )) %>%
-#   count(sd, result) %>%
-#   pivot_wider(id_cols = sd, names_from = result, values_from = n) %>%
-#   mutate(precision = TP / (TP + FP)) %>%
-#   mutate(npv = TN / (TN + FN)) 
+# ------------------------------------------------------------------------------
+# FUNCTION - COMPARISON AGAINST REFERENCE
+# ------------------------------------------------------------------------------
+
+do_ref_comparison2 <- function(reference, outcome, model = NULL, dataset = NULL, type = NULL) {
+  
+  # reference <- clinvar_clinvar_score
+  # outcome <- clinvar_decipher_score
+  # model <- 'ClinVar'
+  # dataset <- 'DECIP'
+  # type <- 'DEL'
+  
+  # Scale [0-1]
+  outcome <- outcome %>% mutate(unc_data = rescale(unc_data))
+  reference <- reference %>% mutate(unc_data = rescale(unc_data))
+  
+  # reference <- reference %>% mutate(rank_residuals = ifelse(mean_score <= 0.02, 1, rank_residuals))
+  
+  reference <- reference %>% mutate(mean_score = abs((2*mean_score) - 1))
+  outcome <- outcome %>% mutate(mean_score = abs((2*mean_score) - 1))
+  
+  outcome_unc_data_summary <- outcome$unc_data %>% summary()
+  outcome_score_summary <- outcome$mean_score %>% summary()
+  
+  
+  reference %>% ggplot(aes(unc_data)) + geom_histogram(fill = 'steelblue', color = 'black')
+  outcome %>% ggplot(aes(unc_data)) + geom_histogram(fill = 'steelblue', color = 'black')
+  
+  p_value_unc_data_less <- wilcox.test(outcome$unc_data, reference$unc_data, alternative = 'less') %>% tidy() %>% pull(p.value)
+  p_value_unc_data_greater <- wilcox.test(outcome$unc_data, reference$unc_data, alternative = 'greater') %>% tidy() %>% pull(p.value)
+  
+  p_value_score_less <- wilcox.test(outcome$mean_score, reference$mean_score, alternative = 'less') %>% tidy() %>% pull(p.value)
+  p_value_score_greater <- wilcox.test(outcome$mean_score, reference$mean_score, alternative = 'greater') %>% tidy() %>% pull(p.value)
+  
+  tibble(model = model,
+         dataset = dataset,
+         type = type,
+         p_value_unc_data_less = p_value_unc_data_less,
+         p_value_unc_data_greater = p_value_unc_data_greater,
+         q1_unc_data_outcome = as.numeric(outcome_unc_data_summary[2]),
+         q2_unc_data_outcome = as.numeric(outcome_unc_data_summary[3]),
+         q3_unc_data_outcome = as.numeric(outcome_unc_data_summary[5]),
+         p_value_score_less = p_value_score_less,
+         p_value_score_greater = p_value_score_greater,
+         q1_score_outcome = as.numeric(outcome_score_summary[1]),
+         q2_score_outcome = as.numeric(outcome_score_summary[2]),
+         q3_score_outcome = as.numeric(outcome_score_summary[3])
+  )
+}
+
+
+
+
+# ------------------------------------------------------------------------------
+# FUNCTION - COMPARISON AGAINST REFERENCE
+# ------------------------------------------------------------------------------
+
+do_ref_comparison <- function(reference, outcome, model = NULL, dataset = NULL, type = NULL) {
+
+  # reference <- ref_clinvar_del[[1]]
+  # outcome <- clinvar_decipher_rel
+  # model <- 'ClinVar'
+  # dataset <- 'DECIP'
+  # type <- 'DEL'
+  
+  # outcome <- outcome %>% mutate(rank_residual = rescale(rank_residual))
+  # reference <- reference %>% mutate(rank_residuals = rescale(rank_residuals))
+  
+  reference <- reference %>% mutate(rank_residuals = ifelse(mean_score <= 0.02, 1, rank_residuals))
+  
+  reference <- reference %>% mutate(mean_score = abs((2*mean_score) - 1))
+  outcome <- outcome %>% mutate(mean_score = abs((2*mean_score) - 1))
+  
+  outcome_rank_summary <- outcome$rank_residual %>% summary()
+  outcome_score_summary <- outcome$mean_score %>% summary()
+  
+  
+  reference %>% ggplot(aes(rank_residuals)) + geom_histogram(fill = 'steelblue', color = 'black')
+  outcome %>% ggplot(aes(rank_residual)) + geom_histogram(fill = 'steelblue', color = 'black')
+  
+  p_value_rank_less <- wilcox.test(outcome$rank_residual, reference$rank_residuals, alternative = 'less') %>% tidy() %>% pull(p.value)
+  p_value_rank_greater <- wilcox.test(outcome$rank_residual, reference$rank_residuals, alternative = 'greater') %>% tidy() %>% pull(p.value)
+  
+  p_value_score_less <- wilcox.test(outcome$mean_score, reference$mean_score, alternative = 'less') %>% tidy() %>% pull(p.value)
+  p_value_score_greater <- wilcox.test(outcome$mean_score, reference$mean_score, alternative = 'greater') %>% tidy() %>% pull(p.value)
+  
+  tibble(model = model,
+         dataset = dataset,
+         type = type,
+         p_value_rank_less = p_value_rank_less,
+         p_value_rank_greater = p_value_rank_greater,
+         q1_rank_outcome = as.numeric(outcome_rank_summary[2]),
+         q2_rank_outcome = as.numeric(outcome_rank_summary[3]),
+         q3_rank_outcome = as.numeric(outcome_rank_summary[5]),
+         p_value_score_less = p_value_score_less,
+         p_value_score_greater = p_value_score_greater,
+         q1_score_outcome = as.numeric(outcome_score_summary[1]),
+         q2_score_outcome = as.numeric(outcome_score_summary[2]),
+         q3_score_outcome = as.numeric(outcome_score_summary[3])
+        )
+}
+
+
+# ------------------------------------------------------------------------------
+# FUNCTION - GENERATE COMPARISON BETWEEN TWO MODELS OUTCOME
+# ------------------------------------------------------------------------------
+
+do_cd_comparison <- function(clinvar_outcome, decipher_outcome, test_set = 'bancco', type = NULL, threshold = 0.5, do_plot = FALSE) {
+  
+  
+  # if (!'TP' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(TP = rep(0, n_final_bins)))
+  # if (!'TN' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(TN = rep(0, n_final_bins)))
+  # if (!'FP' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(FP = rep(0, n_final_bins)))
+  # if (!'FN' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(FN = rep(0, n_final_bins)))
+  # 
+  
+  
+  # clinvar_outcome <- clinvar_clinvarind_rel
+  # decipher_outcome <- decipher_clinvarind_rel
+  # test_set <- 'ClinVar'
+  # type <- 'DEL'
+  # threshold <- 0.5
+  
+  
+  
+  tmp_model1 <- clinvar_outcome %>% 
+    select(id, unc_data, dor_nocond, dor_yescondtest, dor_yescond, clinical, mean_score, rank_residual, ppv_noreli_yesprev, ppv_yesreli_yesprev) %>% 
+    rename(
+      # clinvar_ppv_general = ppv_prev_general ,
+           clinvar_ppv_noreli_yesprev = ppv_noreli_yesprev,
+           clinvar_ppv_yesreli_yesprev = ppv_yesreli_yesprev,
+           
+           clinvar_dor_nocond = dor_nocond,
+           clinvar_dor_yescond = dor_yescond,
+           clinvar_dor_yescondtest = dor_yescondtest,
+           score_clinvar = mean_score, 
+           rank_clinvar = rank_residual) %>%
+    mutate(result =
+             case_when(
+               score_clinvar >= threshold & clinical == 'pathogenic' ~ 'TP',
+               score_clinvar >= threshold & clinical == 'benign' ~ 'FP',
+               score_clinvar < threshold & clinical == 'pathogenic' ~ 'FN',
+               score_clinvar < threshold & clinical ==  'benign' ~ 'TN'
+             )) %>%
+    # mutate(rank_clinvar = rescale(rank_clinvar)) %>%
+    mutate(clinvar_dor_nocond = if_else(is.infinite(clinvar_dor_nocond), max(clinvar_dor_nocond) + 10, clinvar_dor_nocond)) %>%
+    mutate(clinvar_dor_yescond = if_else(is.infinite(clinvar_dor_yescond), max(clinvar_dor_yescond) + 10, clinvar_dor_yescond))
+  
+    # mutate(clinvar_dor_nocond = rescale(clinvar_dor_nocond)) %>%
+    # mutate(clinvar_dor_yescond = rescale(clinvar_dor_yescond))
+ 
+  
+  
+  tmp_model2 <- decipher_outcome %>% 
+    select(id, unc_data, dor_nocond, dor_yescondtest, dor_yescond, clinical, mean_score, rank_residual, ppv_noreli_yesprev, ppv_yesreli_yesprev) %>% 
+    rename(
+      # decipher_ppv_general = ppv_prev_general ,
+      
+      decipher_ppv_noreli_yesprev = ppv_noreli_yesprev,
+      decipher_ppv_yesreli_yesprev = ppv_yesreli_yesprev,
+      
+           decipher_dor_nocond = dor_nocond,
+           decipher_dor_yescond = dor_yescond,
+           decipher_dor_yescondtest = dor_yescondtest,
+           score_decipher = mean_score, 
+      rank_decipher = rank_residual) %>%
+    mutate(result =
+             case_when(
+               score_decipher >= threshold & clinical == 'pathogenic' ~ 'TP',
+               score_decipher >= threshold & clinical == 'benign' ~ 'FP',
+               score_decipher < threshold & clinical == 'pathogenic' ~ 'FN',
+               score_decipher < threshold & clinical ==  'benign' ~ 'TN'
+             )) %>%
+    # mutate(rank_decipher = rescale(rank_decipher)) %>%
+    # mutate(decipher_dor_nocond = rescale(decipher_dor_nocond)) %>%
+    # mutate(decipher_dor_yescond = rescale(decipher_dor_yescond)) %>%
+    mutate(decipher_dor_nocond = if_else(is.infinite(decipher_dor_nocond), max(decipher_dor_nocond) + 10, decipher_dor_nocond)) %>%
+    mutate(decipher_dor_yescond = if_else(is.infinite(decipher_dor_yescond), max(decipher_dor_yescond) + 10, decipher_dor_yescond))
+  
+  
+  tmp_combined <- tmp_model1 %>% left_join(tmp_model2, by = 'id')
+  
+  
+  tmp_combined <- tmp_combined %>%
+    mutate(higher_rank_decipher = ifelse(rank_decipher > rank_clinvar, 'yes', 'no')) %>%
+    
+    mutate(higher_ppv_noreli_yesprev_decipher = ifelse(decipher_ppv_noreli_yesprev > clinvar_ppv_noreli_yesprev, 'yes', 'no')) %>%
+    mutate(higher_ppv_yesreli_yesprev_decipher = ifelse(decipher_ppv_yesreli_yesprev > clinvar_ppv_yesreli_yesprev, 'yes', 'no')) %>%
+    
+    mutate(higher_dor_nocond_decipher = if_else(decipher_dor_nocond > clinvar_dor_nocond, 'yes', 'no')) %>%
+    mutate(higher_dor_yescond_decipher = if_else(decipher_dor_yescond > clinvar_dor_yescond, 'yes', 'no')) %>%
+    mutate(higher_dor_yescondtest_decipher = if_else(decipher_dor_yescondtest > clinvar_dor_yescondtest, 'yes', 'no'))
+  
+  # Rank - no paired
+  tmp_pvalue_no_paired_less <- wilcox.test(tmp_combined$rank_clinvar, tmp_combined$rank_decipher, paired = FALSE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_no_paired_greater <- wilcox.test(tmp_combined$rank_clinvar, tmp_combined$rank_decipher, paired = FALSE, alternative = 'greater') %>% tidy()  %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_no_paired <- glue('less ({tmp_pvalue_no_paired_less}) - greater {tmp_pvalue_no_paired_greater}')
+  
+  # Rank - Paired
+  
+  tmp_pvalue_paired_less <- wilcox.test(tmp_combined$rank_clinvar, tmp_combined$rank_decipher, paired = TRUE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_paired_greater <- wilcox.test(tmp_combined$rank_clinvar, tmp_combined$rank_decipher, paired = TRUE, alternative = 'greater') %>% tidy()  %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_paired <- glue('less ({tmp_pvalue_paired_less}) - greater ({tmp_pvalue_paired_greater})')
+  
+  # Rank - Paired - two sided
+  
+  tmp_pvalue_paired_twosided <- wilcox.test(tmp_combined$rank_clinvar, tmp_combined$rank_decipher, paired = TRUE) %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  # Rank - Paired - SCORE - two sided
+  
+  tmp_pvalue_paired_score_twosided <- wilcox.test(tmp_combined$score_clinvar, tmp_combined$score_decipher, paired = TRUE) %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  
+  # Wilcoxon NO PAIRED - PPV_NORELI_YESPREV
+  
+  tmp_pvalue_nopaired_ppv_noreli_yesprev_less <- wilcox.test(tmp_combined$clinvar_ppv_noreli_yesprev, tmp_combined$decipher_ppv_noreli_yesprev, paired = FALSE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_nopaired_ppv_noreli_yesprev_greater <- wilcox.test(tmp_combined$clinvar_ppv_noreli_yesprev, tmp_combined$decipher_ppv_noreli_yesprev, paired = FALSE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_nopaired_ppv_noreli_yesprev <- glue('less ({tmp_pvalue_nopaired_ppv_noreli_yesprev_less}) - greater ({tmp_pvalue_nopaired_ppv_noreli_yesprev_greater})')
+  
+  # Wilcoxon PAIRED - PPV_NORELI_YESPREV
+  
+  tmp_pvalue_paired_ppv_noreli_yesprev_less <- wilcox.test(tmp_combined$clinvar_ppv_noreli_yesprev, tmp_combined$decipher_ppv_noreli_yesprev, paired = TRUE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_paired_ppv_noreli_yesprev_greater <- wilcox.test(tmp_combined$clinvar_ppv_noreli_yesprev, tmp_combined$decipher_ppv_noreli_yesprev, paired = TRUE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_paired_ppv_noreli_yesprev <- glue('less ({tmp_pvalue_paired_ppv_noreli_yesprev_less}) - greater ({tmp_pvalue_paired_ppv_noreli_yesprev_greater})')
+  
+  
+  # Wilcoxon NO PAIRED - PPV_YESRELI_YESPREV
+  
+  tmp_pvalue_nopaired_ppv_reli_yesprev_less <- wilcox.test(tmp_combined$clinvar_ppv_yesreli_yesprev, tmp_combined$decipher_ppv_yesreli_yesprev, paired = FALSE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_nopaired_ppv_reli_yesprev_greater <- wilcox.test(tmp_combined$clinvar_ppv_yesreli_yesprev, tmp_combined$decipher_ppv_yesreli_yesprev, paired = FALSE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_nopaired_ppv_reli_yesprev <- glue('less ({tmp_pvalue_nopaired_ppv_reli_yesprev_less}) - greater ({tmp_pvalue_nopaired_ppv_reli_yesprev_greater})')
+  
+  # Wilcoxon PAIRED - PPV_YESRELI_YESPREV
+  
+  tmp_pvalue_paired_ppv_reli_yesprev_less <- wilcox.test(tmp_combined$clinvar_ppv_yesreli_yesprev, tmp_combined$decipher_ppv_yesreli_yesprev, paired = TRUE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_paired_ppv_reli_yesprev_greater <- wilcox.test(tmp_combined$clinvar_ppv_yesreli_yesprev, tmp_combined$decipher_ppv_yesreli_yesprev, paired = TRUE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_paired_ppv_reli_yesprev <- glue('less ({tmp_pvalue_paired_ppv_reli_yesprev_less}) - greater ({tmp_pvalue_paired_ppv_reli_yesprev_greater})')
+  
+
+  # Wilcoxon DOR NOCOND - 
+  
+  tmp_pvalue_nopaired_dor_nocond_less <- wilcox.test(tmp_combined$clinvar_dor_nocond, tmp_combined$decipher_dor_nocond, paired = FALSE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_nopaired_dor_nocond_greater <- wilcox.test(tmp_combined$clinvar_dor_nocond, tmp_combined$decipher_dor_nocond, paired = FALSE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_nopaired_dor_nocond <- glue('less ({tmp_pvalue_nopaired_dor_nocond_less}) - greater ({tmp_pvalue_nopaired_dor_nocond_greater})')
+  
+  
+  # Wilcoxon DOR YESCOND - 
+  
+  tmp_pvalue_nopaired_dor_yescond_less <- wilcox.test(tmp_combined$clinvar_dor_yescond, tmp_combined$decipher_dor_yescond, paired = FALSE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_nopaired_dor_yescond_greater <- wilcox.test(tmp_combined$clinvar_dor_yescond, tmp_combined$decipher_dor_yescond, paired = FALSE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_nopaired_dor_yescond <- glue('less ({tmp_pvalue_nopaired_dor_yescond_less}) - greater ({tmp_pvalue_nopaired_dor_yescond_greater})')
+  
+  
+  # Wilcoxon DOR YESCOND PREDICTION - 
+  
+  tmp_pvalue_nopaired_dor_yescondpredict_less <- wilcox.test(tmp_combined$clinvar_dor_yescondtest, tmp_combined$decipher_dor_yescondtest, paired = FALSE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_nopaired_dor_yescondpredict_greater <- wilcox.test(tmp_combined$clinvar_dor_yescondtest, tmp_combined$decipher_dor_yescondtest, paired = FALSE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_nopaired_dor_yescondpredict <- glue('less ({tmp_pvalue_nopaired_dor_yescondpredict_less}) - greater ({tmp_pvalue_nopaired_dor_yescondpredict_greater})')
+  
+  
+  # Wilcoxon DOR NOCOND - paired
+  
+  tmp_pvalue_paired_dor_nocond_less <- wilcox.test(tmp_combined$clinvar_dor_nocond, tmp_combined$decipher_dor_nocond, paired = TRUE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_paired_dor_nocond_greater <- wilcox.test(tmp_combined$clinvar_dor_nocond, tmp_combined$decipher_dor_nocond, paired = TRUE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_paired_dor_nocond <- glue('less ({tmp_pvalue_paired_dor_nocond_less}) - greater ({tmp_pvalue_paired_dor_nocond_greater})')
+  
+  # Wilcoxon DOR YESCOND - paired
+  
+  tmp_pvalue_paired_dor_yescond_less <- wilcox.test(tmp_combined$clinvar_dor_yescond, tmp_combined$decipher_dor_yescond, paired = TRUE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_paired_dor_yescond_greater <- wilcox.test(tmp_combined$clinvar_dor_yescond, tmp_combined$decipher_dor_yescond, paired = TRUE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_paired_dor_yescond <- glue('less ({tmp_pvalue_paired_dor_yescond_less}) - greater ({tmp_pvalue_paired_dor_yescond_greater})')
+  
+  # Wilcoxon DOR YESCONDPREDICT - paired
+  
+  tmp_pvalue_paired_dor_yescondpredict_less <- wilcox.test(tmp_combined$clinvar_dor_yescondtest, tmp_combined$decipher_dor_yescondtest, paired = TRUE, alternative = 'less') %>% tidy() %>% pull(p.value) %>% round(3)
+  tmp_pvalue_paired_dor_yescondpredict_greater <- wilcox.test(tmp_combined$clinvar_dor_yescondtest, tmp_combined$decipher_dor_yescondtest, paired = TRUE, alternative = 'greater') %>% tidy() %>% pull(p.value) %>% round(3)
+  
+  tmp_pvalue_paired_dor_yescondpredict <- glue('less ({tmp_pvalue_paired_dor_yescondpredict_less}) - greater ({tmp_pvalue_paired_dor_yescondpredict_greater})')
+
+  
+  # % calculation - rank
+  
+  tmp_perc <- tmp_combined %>% count(higher_rank_decipher) %>%
+    mutate(perc = 100*(n / sum(n))) %>%
+    slice(2) %>%
+    pull(perc)
+  
+  # % calculation - PPV NORELI - YESPREV
+  
+  tmp_perc_ppv_noreli_yesprev <- tmp_combined %>% count(higher_ppv_noreli_yesprev_decipher) %>%
+    mutate(perc = 100*(n / sum(n))) %>%
+    slice(2) %>%
+    pull(perc)
+  
+  # % calculation - PPV YESRELI - YESPREV
+  
+  tmp_perc_ppv_yesreli_yesprev <- tmp_combined %>% count(higher_ppv_yesreli_yesprev_decipher) %>%
+    mutate(perc = 100*(n / sum(n))) %>%
+    slice(2) %>%
+    pull(perc)
+
+  # % calculation - % DOR_NOCOND
+  
+  tmp_perc_dor_nocond <- tmp_combined %>% count(higher_dor_nocond_decipher) %>%
+    mutate(perc = 100*(n / sum(n))) %>%
+    filter(higher_dor_nocond_decipher == 'yes') %>%
+    pull(perc)
+  
+  # % calculation - % DOR_YESCOND
+  
+  tmp_perc_dor_yescond <- tmp_combined %>% count(higher_dor_yescond_decipher) %>%
+    mutate(perc = 100*(n / sum(n))) %>%
+    filter(higher_dor_yescond_decipher == 'yes') %>%
+    pull(perc)
+  
+  # % calculation - % DOR_YESCONDPREDICT
+  
+  
+  tmp_perc_dor_yescondpredict <- tmp_combined %>% count(higher_dor_yescondtest_decipher) %>%
+    mutate(perc = 100*(n / sum(n))) %>%
+    filter(higher_dor_yescondtest_decipher == 'yes') %>%
+    pull(perc)
+  
+  tmp_auroc_clinvar <- tmp_model1 %>% roc_auc(clinical, score_clinvar) %>% pull(.estimate) %>% round(3)
+  tmp_auroc_decipher <- tmp_model2 %>% roc_auc(clinical, score_decipher) %>% pull(.estimate) %>% round(3)
+  
+  tmp_sensitivity_clinvar <- tmp_model1  %>% 
+    count(result) %>% 
+    pivot_wider(id_cols = NULL, names_from = result, values_from = n)
+  
+  if (!'TP' %in% colnames(tmp_sensitivity_clinvar)) tmp_sensitivity_clinvar <- tmp_sensitivity_clinvar %>% bind_cols(tibble(TP = 0))
+  if (!'TN' %in% colnames(tmp_sensitivity_clinvar)) tmp_sensitivity_clinvar <- tmp_sensitivity_clinvar %>% bind_cols(tibble(TN = 0))
+  if (!'FP' %in% colnames(tmp_sensitivity_clinvar)) tmp_sensitivity_clinvar <- tmp_sensitivity_clinvar %>% bind_cols(tibble(FP = 0))
+  if (!'FN' %in% colnames(tmp_sensitivity_clinvar)) tmp_sensitivity_clinvar <- tmp_sensitivity_clinvar %>% bind_cols(tibble(FN = 0))
+
+  
+  tmp_sensitivity_clinvar <- tmp_sensitivity_clinvar %>%
+    mutate(sensitivity = TP / (TP + FN)) %>%
+    pull(sensitivity)
+  
+  
+  tmp_sensitivity_decipher <- tmp_model2  %>% 
+    count(result) %>% 
+    pivot_wider(id_cols = NULL, names_from = result, values_from = n)
+  
+  if (!'TP' %in% colnames(tmp_sensitivity_decipher)) tmp_sensitivity_decipher <- tmp_sensitivity_decipher %>% bind_cols(tibble(TP = 0))
+  if (!'TN' %in% colnames(tmp_sensitivity_decipher)) tmp_sensitivity_decipher <- tmp_sensitivity_decipher %>% bind_cols(tibble(TN = 0))
+  if (!'FP' %in% colnames(tmp_sensitivity_decipher)) tmp_sensitivity_decipher <- tmp_sensitivity_decipher %>% bind_cols(tibble(FP = 0))
+  if (!'FN' %in% colnames(tmp_sensitivity_decipher)) tmp_sensitivity_decipher <- tmp_sensitivity_decipher %>% bind_cols(tibble(FN = 0))
+  
+  
+  
+  tmp_sensitivity_decipher <- tmp_sensitivity_decipher %>%
+    mutate(sensitivity = TP / (TP + FN)) %>%
+    pull(sensitivity)
+  
+  
+  tmp_specificity_clinvar <- tmp_model1  %>% 
+    count(result) %>% 
+    pivot_wider(id_cols = NULL, names_from = result, values_from = n) 
+  
+  if (!'TP' %in% colnames(tmp_specificity_clinvar)) tmp_specificity_clinvar <- tmp_specificity_clinvar %>% bind_cols(tibble(TP = 0))
+  if (!'TN' %in% colnames(tmp_specificity_clinvar)) tmp_specificity_clinvar <- tmp_specificity_clinvar %>% bind_cols(tibble(TN = 0))
+  if (!'FP' %in% colnames(tmp_specificity_clinvar)) tmp_specificity_clinvar <- tmp_specificity_clinvar %>% bind_cols(tibble(FP = 0))
+  if (!'FN' %in% colnames(tmp_specificity_clinvar)) tmp_specificity_clinvar <- tmp_specificity_clinvar %>% bind_cols(tibble(FN = 0))
+
+  tmp_specificity_clinvar <- tmp_specificity_clinvar %>%
+    mutate(specificity = TN / (TN + FP)) %>%
+    pull(specificity)
+  
+  
+  tmp_specificity_decipher <- tmp_model2  %>% 
+    count(result) %>% 
+    pivot_wider(id_cols = NULL, names_from = result, values_from = n)
+  
+  if (!'TP' %in% colnames(tmp_specificity_decipher)) tmp_specificity_decipher <- tmp_specificity_decipher %>% bind_cols(tibble(TP = 0))
+  if (!'TN' %in% colnames(tmp_specificity_decipher)) tmp_specificity_decipher <- tmp_specificity_decipher %>% bind_cols(tibble(TN = 0))
+  if (!'FP' %in% colnames(tmp_specificity_decipher)) tmp_specificity_decipher <- tmp_specificity_decipher %>% bind_cols(tibble(FP = 0))
+  if (!'FN' %in% colnames(tmp_specificity_decipher)) tmp_specificity_decipher <- tmp_specificity_decipher %>% bind_cols(tibble(FN = 0))
+  
+  tmp_specificity_decipher <- tmp_specificity_decipher %>%
+    mutate(specificity = TN / (TN + FP)) %>%
+    pull(specificity)
+  
+  
+  if (!isTRUE(do_plot)) {
+
+  tmp_output <- tibble('test_set' = test_set, 
+                       'type' = type,
+                       # 'wilcoxon_nopaired_rank' = tmp_wilcoxon_nopaired_rank,
+         'wilcoxon_no_paired_p_value_rank' = tmp_pvalue_no_paired,
+         'wilcoxon_paired_p_value_rank' = tmp_pvalue_paired, 
+         
+         'wilcoxon_paired_p_value_rank_twosided' = tmp_pvalue_paired_twosided,
+         'wilcoxon_paired_p_value_score_twosided' = tmp_pvalue_paired_score_twosided,
+         
+
+         'wilcoxon_no_paired_ppv_noreli_yesprev' = tmp_pvalue_nopaired_ppv_noreli_yesprev,
+         'wilcoxon_paired_ppv_noreli_yesprev' = tmp_pvalue_paired_ppv_noreli_yesprev,
+         'wilcoxon_no_paired_ppv_yesreli_yesprev' = tmp_pvalue_nopaired_ppv_reli_yesprev,
+         'wilcoxon_paired_ppv_yesreli_yesprev' = tmp_pvalue_paired_ppv_reli_yesprev,
+     
+         'wilcoxon_nopaired_dor_yescondprediction' = tmp_pvalue_nopaired_dor_yescondpredict,
+         'wilcoxon_paired_dor_yescondprediction' = tmp_pvalue_paired_dor_yescondpredict,
+         
+         'wilcoxon_paired_p_value_dor_nocond' = tmp_pvalue_paired_dor_nocond,
+         'wilcoxon_paired_p_value_dor_yescond' = tmp_pvalue_paired_dor_yescond,
+         
+         'perc_ppv_noreli_yesprev' = tmp_perc_ppv_noreli_yesprev %>% round(3),
+         'perc_ppv_yesreli_yesprev' = tmp_perc_ppv_yesreli_yesprev %>% round(3),
+         
+         'perc_higher_decipher_rank' = tmp_perc %>% round(3),
+         'perc_higher_decipher_dor_yescondtest' = tmp_perc_dor_yescondpredict %>% round(3),
+         
+         'perc_higher_decipher_dor_nocond' = tmp_perc_dor_nocond %>% round(3),
+         'perc_higher_decipher_dor_yescond' = tmp_perc_dor_yescond %>% round(3),
+         
+         'auroc_clinvar' = tmp_auroc_clinvar , 
+         'auroc_decipher' = tmp_auroc_decipher , 
+         'sensitivity_clinvar' = tmp_sensitivity_clinvar %>% round(3), 
+         'sensitivity_decipher' = tmp_sensitivity_decipher %>% round(3), 
+         'specificity_clinvar' = tmp_specificity_clinvar %>% round(3), 
+         'specificity_decipher' = tmp_specificity_decipher %>% round(3)
+  ) %>%
+      mutate(across(where(is.double), as.character))
+      # pivot_longer(-test_set, names_to = 'metric', values_to = 'value') %>%
+      # select(-test_set)
+  
+  # colnames(tmp_output)[2] <- test_set
+  
+  tmp_output
+    
+  } else {
+    
+    p1_tmp <- tmp_model1 %>% ggplot(aes(score_clinvar, sd)) + geom_point(aes(color = rank_clinvar)) + theme_minimal() + scale_color_viridis_c() + ggtitle(glue('ClinVar model - {test_set} dataset'))
+    p2_tmp <- tmp_model2 %>% ggplot(aes(score_decipher, sd)) + geom_point(aes(color = rank_decipher)) + theme_minimal() + scale_color_viridis_c() + ggtitle(glue('DECIPHER model - {test_set} dataset'))
+    # p3_tmp <- tmp_model1 %>% ggplot(aes(score_clinvar, sd)) + geom_point(aes(color = clinvar_ppv_general)) + theme_minimal() + scale_color_viridis_c() + ggtitle(glue('ClinVar model - {test_set} dataset'))
+    p4_tmp <- tmp_model2 %>% ggplot(aes(score_decipher, sd)) + geom_point(aes(color = decipher_ppv_general)) + theme_minimal() + scale_color_viridis_c() + ggtitle(glue('DECIPHER model - {test_set} dataset'))
+    p5_tmp <- tmp_model1 %>% ggplot(aes(score_clinvar, sd)) + geom_point(aes(color = clinvar_ppv_relative)) + theme_minimal() + scale_color_viridis_c() + ggtitle(glue('ClinVar model - {test_set} dataset'))
+    p6_tmp <- tmp_model2 %>% ggplot(aes(score_decipher, sd)) + geom_point(aes(color = decipher_ppv_relative)) + theme_minimal() + scale_color_viridis_c() + ggtitle(glue('DECIPHER model - {test_set} dataset'))
+    p7_tmp <- tmp_model1 %>% ggplot(aes(rank_clinvar)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset'))
+    p8_tmp <- tmp_model2 %>% ggplot(aes(rank_decipher)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset'))
+    #
+    p9_tmp <- tmp_model1 %>% ggplot(aes(rank_clinvar)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_no_paired} - AUROC: {tmp_auroc_clinvar} ')) +  theme(plot.title = element_text(size = 9))
+    p10_tmp <- tmp_model2 %>% ggplot(aes(rank_decipher)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired}  - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    # p11_tmp <- tmp_model1 %>% ggplot(aes(clinvar_ppv_general)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_no_paired_ppv_general} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    # p12_tmp <- tmp_model2 %>% ggplot(aes(decipher_ppv_general)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_ppv_general} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    # p13_tmp <- tmp_model1 %>% ggplot(aes(clinvar_ppv_relative)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_no_paired_ppv_relative} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    # p14_tmp <- tmp_model2 %>% ggplot(aes(decipher_ppv_relative)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_ppv_relative} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    p15_tmp <- tmp_model1 %>% ggplot(aes(clinvar_dor_nocond)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    p16_tmp <- tmp_model2 %>% ggplot(aes(decipher_dor_nocond)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    p17_tmp <- tmp_model1 %>% ggplot(aes(clinvar_dor_yescond)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    p18_tmp <- tmp_model2 %>% ggplot(aes(decipher_dor_yescond)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    p19_tmp <- tmp_model1 %>% ggplot(aes(clinvar_dor_yescondtest)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    p20_tmp <- tmp_model2 %>% ggplot(aes(decipher_dor_yescondtest)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    p21_tmp <- tmp_model1 %>% ggplot(aes(clinvar_ppv_noreli_yesprev)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    p22_tmp <- tmp_model2 %>% ggplot(aes(decipher_ppv_noreli_yesprev)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    p23_tmp <- tmp_model1 %>% ggplot(aes(clinvar_ppv_yesreli_yesprev)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('ClinVar model - {test_set} dataset - no_paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_clinvar} '))  +  theme(plot.title = element_text(size = 9))
+    p24_tmp <- tmp_model2 %>% ggplot(aes(decipher_ppv_yesreli_yesprev)) + geom_histogram(fill = 'steelblue', color = 'black') + theme_minimal() + ggtitle(glue('DECIPHER model - {test_set} dataset - paired: {tmp_pvalue_paired_dor_nocond} - AUROC: {tmp_auroc_decipher} '))  +  theme(plot.title = element_text(size = 9))
+    
+    # (p1_tmp | p2_tmp) /
+    #   (p3_tmp | p4_tmp) /
+    #   (p5_tmp | p6_tmp) /
+    #   (p7_tmp | p8_tmp) /
+    #   (p9_tmp | p10_tmp)
+    
+    # (p9_tmp | p10_tmp) /  (p15_tmp | p16_tmp) / (p17_tmp | p18_tmp) / (p19_tmp | p20_tmp)
+
+    (p21_tmp + p22_tmp) + (p23_tmp + p24_tmp)
+  }
+  
+}
+  
+  
+do_comparison_auroc <- function(x) {
+  
+  # x <- clinvar_clinvar_del_reli
+
+    x <- x %>%
+      mutate(dor_yescond = if_else(is.infinite(dor_yescond), 1200, dor_yescond)) %>%
+      mutate(dor_yescondtest = if_else(is.infinite(dor_yescondtest), 1200, dor_yescondtest)) %>%
+      mutate(dor_nocond = if_else(is.infinite(dor_nocond), 1200, dor_nocond))
+    
+tibble('auroc_score' = x %>% roc_auc(clinical, .pred_pathogenic) %>% pull(.estimate),
+       # 'ppv_general' = x %>% roc_auc(clinical, ppv_prev_general) %>% pull(.estimate),
+       # 'auroc_ppv_noreli_yesprev' = x %>% roc_auc(clinical, ppv_prev_noreli_yesprev) %>% pull(.estimate),
+       # 'auroc_ppv_yesreli_yesprev' = x %>% roc_auc(clinical, ppv_prev_yesreli_yesprev) %>% pull(.estimate),
+       
+       'dor_nocond' = x %>% roc_auc(clinical, dor_nocond) %>% pull(.estimate),
+       'dor_yescond' = x %>% roc_auc(clinical, dor_yescond) %>% pull(.estimate),
+       'dor_yescondtest' = x %>% roc_auc(clinical, dor_yescondtest) %>% pull(.estimate),
+       
+       )  
+  # pivot_longer(cols = everything(), names_to = 'parameter', values_to = 'AUROC') %>%
+  # arrange(desc(AUROC))
+
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - DO GLM 2
+# ------------------------------------------------------------------------------
+
+do_logistic2 <- function(x, y, model = NULL, dataset = NULL, type = NULL) {
+  
+  # x <- clinvar_clinvar_score
+  # y <- clinvar_decipher_score
+  # model <- 'test'
+  # dataset <- 'test2'
+  # type <- 'test3'
+  
+  glm_data <- x %>%
+    mutate(clinical = relevel(clinical, 'benign')) %>%
+    mutate(parameter_a = (2*mean_score) - 1) %>%
+    mutate(parameter_b = sign(parameter_a)*unc_data) %>%
+    mutate(parameter_c = ((2*mean_score) - 1)*-unc_data)
+  
+  model_glm_reference <- glm(clinical ~ parameter_a + parameter_c,
+                             data = glm_data, family = "binomial")
+  
+  test_data <- y %>%
+    mutate(clinical = relevel(clinical, 'benign')) %>%
+    mutate(parameter_a = (2*mean_score) - 1) %>%
+    mutate(parameter_b = sign(parameter_a)*unc_data) %>%
+    mutate(parameter_c = ((2*mean_score) - 1)*-unc_data) %>%
+    mutate(predicted_label = factor(if_else(mean_score >= 0.5, 'pathogenic', 'benign'), levels = c('pathogenic', 'benign')))
+  
+  model_glm_test <- glm(clinical ~ parameter_a + parameter_c,
+                        data = test_data, family = "binomial")
+  
+  
+  prediction_glm <- test_data  %>%
+    mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
+    mutate(score_glm_ref = model_glm_reference %>% predict(test_data, type = 'response')) %>%
+    mutate(predicted_label_glm = factor(if_else(score_glm_ref >= 0.5, 'pathogenic', 'benign'), levels = c('pathogenic', 'benign'))) %>%
+    mutate(score_glm_testing = model_glm_test %>% predict(test_data, type = 'response')) %>%
+    mutate(predicted_label_glm_testing = factor(if_else(score_glm_testing >= 0.5, 'pathogenic', 'benign'), levels = c('pathogenic', 'benign')))
+
+  # prediction_glm %>% ggplot(aes(mean_score, score_glm_ref)) + geom_point()
+
+  tmp_result <- tibble('model' = model,
+                       'dataset' = dataset,
+                       'type' = type,
+                        
+                       'param_a' = model_glm_test %>% tidy() %>% filter(term == 'parameter_a') %>% pull(estimate),
+                       'param_a_pvalue' = model_glm_test %>% tidy() %>% filter(term == 'parameter_a') %>% pull(p.value),
+
+                       'param_c' = model_glm_test %>% tidy() %>% filter(term == 'parameter_c') %>% pull(estimate),
+                       'param_c_pvalue' = model_glm_test %>% tidy() %>% filter(term == 'parameter_c') %>% pull(p.value),
+                       
+                       'auroc_score' = prediction_glm %>% roc_auc(clinical, mean_score) %>% pull(3),
+                       'auprc_score' = prediction_glm %>% pr_auc(clinical, mean_score) %>% pull(3),
+                       'sensit_score' = prediction_glm %>% sens(clinical, predicted_label) %>% pull(3),
+                       'specif_score' = prediction_glm %>% spec(clinical, predicted_label) %>% pull(3),
+                       
+                       'auroc_glm_ref_score' = prediction_glm %>% roc_auc(clinical, score_glm_ref) %>% pull(3),
+                       'auprc_glm_ref_score' = prediction_glm %>% pr_auc(clinical, score_glm_ref) %>% pull(3),
+                       
+                       'sensit_glm_ref_score' = prediction_glm %>% sens(clinical, predicted_label_glm) %>% pull(3),
+                       'specif_glm_ref_score' = prediction_glm %>% spec(clinical, predicted_label_glm) %>% pull(3),
+                       
+                       'auroc_glm_testing_score' = prediction_glm %>% roc_auc(clinical, score_glm_testing) %>% pull(3),
+                       'auprc_glm_testing_score' = prediction_glm %>% roc_auc(clinical, score_glm_testing) %>% pull(3),
+                       'sensit_glm_testing_score' = prediction_glm %>% sens(clinical, predicted_label_glm_testing) %>% pull(3),
+                       'specif_glm_testing_score' = prediction_glm %>% spec(clinical, predicted_label_glm_testing) %>% pull(3)
+                       
+  )
+  
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - DO GLM
+# ------------------------------------------------------------------------------
+
+do_logistic <- function(x, y, model = NULL, dataset = NULL, type = NULL) {
+  
+  # x <- ref_clinvar_del[[1]]
+  # y <- clinvar_clinvar_rel
+  # model <- 'test'
+  # dataset <- 'test2'
+  # type <- 'test3'
+  
+  # ref_clinvar_del[[1]], clinvar_clinvar_rel
   
   
   
 
-# almost_decipher %>%
-#   count(sd, clinical) %>%
-#   group_by(sd) %>%
-#   mutate(perc = n / sum(n)) %>%
-#   ggplot(aes(sd, perc)) +
-#     geom_col(aes(fill = clinical), color = 'black')
-# 
-# almost_decipher %>%
-#   count(sd, clinical)
+  x <- x %>% rename(rank_residual = rank_residuals)
+  
+  glm_data <- x %>%
+    mutate(clinical = relevel(clinical, 'benign')) %>%
+    # mutate(rank_residual = rescale(rank_residual)) %>%
+    mutate(parameter_a = (2*mean_score) - 1) %>%
+    mutate(parameter_b = sign(parameter_a)*rank_residual) %>%
+    mutate(parameter_c = ((2*mean_score) - 1)*rank_residual)
+  
+  test_data <- y %>%
+    mutate(clinical = relevel(clinical, 'benign')) %>%
+    mutate(parameter_a = (2*mean_score) - 1) %>%
+    mutate(parameter_b = sign(parameter_a)*rank_residual) %>%
+    mutate(parameter_c = ((2*mean_score) - 1)*rank_residual) %>%
+    mutate(predicted_label = factor(if_else(mean_score >= 0.5, 'pathogenic', 'benign'), levels = c('pathogenic', 'benign')))
+
+  model_glm_reference <- glm(clinical ~ parameter_a + parameter_c,
+                     data = glm_data, family = "binomial")
+  
+  model_glm_test <- glm(clinical ~ parameter_a + parameter_c,
+                        data = test_data, family = "binomial")
+
+  prediction_glm <- test_data %>%
+    mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign'))) %>%
+    mutate(score_glm_ref = model_glm_reference %>% predict(test_data, type = 'response')) %>%
+    mutate(predicted_label_glm = factor(if_else(score_glm_ref >= 0.5, 'pathogenic', 'benign'), levels = c('pathogenic', 'benign'))) %>%
+    mutate(score_glm_testing = model_glm_test %>% predict(test_data, type = 'response')) %>%
+    mutate(predicted_label_glm_testing = factor(if_else(score_glm_testing >= 0.5, 'pathogenic', 'benign'), levels = c('pathogenic', 'benign')))
+  
+  
+  tmp_result <- tibble('model' = model,
+         'dataset' = dataset,
+         'type' = type,
+         
+         'param_a' = model_glm_test %>% tidy() %>% filter(term == 'parameter_a') %>% pull(estimate),
+         'param_a_pvalue' = model_glm_test %>% tidy() %>% filter(term == 'parameter_a') %>% pull(p.value),
+         
+         'param_c' = model_glm_test %>% tidy() %>% filter(term == 'parameter_c') %>% pull(estimate),
+         'param_c_pvalue' = model_glm_test %>% tidy() %>% filter(term == 'parameter_c') %>% pull(p.value),
+         
+         'auroc_score' = prediction_glm %>% roc_auc(clinical, mean_score) %>% pull(3),
+         'auprc_score' = prediction_glm %>% pr_auc(clinical, mean_score) %>% pull(3),
+         'sensit_score' = prediction_glm %>% sens(clinical, predicted_label) %>% pull(3),
+         'specif_score' = prediction_glm %>% spec(clinical, predicted_label) %>% pull(3),
+         
+         'auroc_glm_ref_score' = prediction_glm %>% roc_auc(clinical, score_glm_ref) %>% pull(3),
+         'auprc_glm_ref_score' = prediction_glm %>% pr_auc(clinical, score_glm_ref) %>% pull(3),
+         
+         'sensit_glm_ref_score' = prediction_glm %>% sens(clinical, predicted_label_glm) %>% pull(3),
+         'specif_glm_ref_score' = prediction_glm %>% spec(clinical, predicted_label_glm) %>% pull(3),
+        
+         'auroc_glm_testing_score' = prediction_glm %>% roc_auc(clinical, score_glm_testing) %>% pull(3),
+         'auprc_glm_testing_score' = prediction_glm %>% roc_auc(clinical, score_glm_testing) %>% pull(3),
+         'sensit_glm_testing_score' = prediction_glm %>% sens(clinical, predicted_label_glm_testing) %>% pull(3),
+         'specif_glm_testing_score' = prediction_glm %>% spec(clinical, predicted_label_glm_testing) %>% pull(3)
+         
+          )
+  
+  return(tmp_result)
+  
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - DO GLM
+# ------------------------------------------------------------------------------
+
+generate_gam <- function(x, model = NULL, dataset = NULL, n_bins = 3, type = NULL) {
+  
   
 
-# tmp2 %>%
-#   mutate(quant_residuals = vector_quantiles_decipher) %>%
-#   # filter(clinical == 'benign') %>% 
-#   ggplot(aes(cnvscore_score, sd)) +
-#   geom_point(aes(color = quant_residuals), show.legend = T) +
-#   geom_smooth(method = 'gam', formula = y ~ s(x, bs = "cr")) +
-#   theme_minimal() +
-#   scale_color_distiller(palette = "Spectral") +
-#   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
-#   facet_wrap(vars(clinical))
+  # x <- decipher_clinvar_ens_dup_score
+  # model <- 'TEST'
+  # dataset <- 'TEST2'
+  # type <- 'test3'
+  
+  
+  # tmp_gam <- x %>% mutate(mean_score = ifelse(mean_score >= 0.5, mean_score, 1 - mean_score))
+  # tmp_gam <- x
+  # 
+  # # trendline_tmp <- gam(unc_data ~ s(mean_score, 
+  # #                                   bs="ts", 
+  # #                                   m = 1, 
+  # #                                   k = 10), data= tmp_gam, 
+  # #                      gamma = 0.5,
+  # #                      method = 'REML',
+  # #                      select = TRUE
+  # # )
+  # 
+  # trendline_tmp <- gam(unc_data ~ s(mean_score, 
+  #                                   bs="ts"), data= tmp_gam
+  # )
+  
+  
+  tmp_tibble <- x %>%
+    mutate(is_more = ifelse(mean_score > 0.5, 'more', 'less')) %>% 
+    group_by(is_more) %>%
+    mutate(reliability_score = ntile(-unc_data, 3)) %>% 
+    ungroup() %>%
+    # mutate(gam_residuals = residuals(trendline_tmp)) %>%
+    # mutate(score_interval = ntile(mean_score, n = 10)) %>%
+    # group_by(score_interval) %>%
+    # mutate(reliability_score = ntile(-gam_residuals, 2)) %>%
+    # ungroup() %>%
+    mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  
+  # tmp_tibble %>%
+  #   ggplot(aes(mean_score, unc_data)) + geom_point(aes(color = factor(reliability_score)))
+  tmp_tibble %>% group_by(reliability_score) %>% roc_auc(clinical, mean_score)
+  tmp_tibble %>% ggplot(aes(factor(reliability_score), mean_score)) + geom_boxplot() + facet_wrap(vars(score_interval))
+  
+  tmp_label <- tmp_tibble %>% mutate(label = case_when(
+    mean_score >= 0.5 & clinical == 'pathogenic' ~ 'TP',
+    mean_score < 0.5 & clinical == 'benign' ~ 'TN',
+    mean_score >= 0.5 & clinical == 'benign' ~ 'FP',
+    mean_score < 0.5 & clinical == 'pathogenic' ~ 'FN'
+  ))  %>%
+    count(reliability_score, label) %>%
+    pivot_wider(id_cols = reliability_score, names_from = label, values_from = n) %>%
+    replace(is.na(.), 0)
+  
+  n_final_bins <- nrow(tmp_label)
+  
+  if (!'TP' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(TP = rep(0, n_final_bins)))
+  if (!'TN' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(TN = rep(0, n_final_bins)))
+  if (!'FP' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(FP = rep(0, n_final_bins)))
+  if (!'FN' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(FN = rep(0, n_final_bins)))
+  
+  
+  
+  tmp_label <- tmp_label %>%
+    mutate(sensitivity = (TP / (TP + FN))) %>%
+    mutate(specificity = (TN / (TN + FP))) %>%
+    select(reliability_score, sensitivity, specificity)
+  
+  
+  tmp_auroc <- tmp_tibble %>% group_by(reliability_score) %>% roc_auc(clinical, mean_score) %>% rename(auroc = .estimate) 
+  tmp_aupr <- tmp_tibble %>% group_by(reliability_score) %>% pr_auc(clinical, mean_score) %>% rename(aupr = .estimate) %>% select(reliability_score, aupr)
+  
+  tmp_label %>%
+    left_join(tmp_auroc, id = 'reliability_score') %>%
+    left_join(tmp_aupr, id = 'reliability_score') %>%
+    mutate(model = model, dataset = dataset, type = type) %>%
+    select(model, dataset, type, reliability_score, auroc, aupr, sensitivity, specificity) %>%
+    ungroup()
+  
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - DO GLM
+# ------------------------------------------------------------------------------
+
+
+
+generate_g2am <- function(x, model = NULL, dataset = NULL, n_bins = 3, type = NULL) {
+  
+  
+  # x <- decipher_decipher_score
+  # test1 <- decipher_ens_del %>% map_dfr(~ .x[[1]]) 
+  # 
+  # x <- predict_ensemble(decipher_ens_del, test1)
+  # model <- 'TEST'
+  # dataset <- 'TEST2'
+  # type <- 'test3'
+  
+
+  # x %>% 
+  #   mutate(score_interval = ntile(mean_score, n = 10)) %>%
+  #   select(clinical, mean_score, score_interval, unc_data) %>%
+  #   group_by(score_interval) %>%
+  #   # arrange(unc_data) %>%
+  #   mutate(row_order = row_number()) %>%
+  #   pivot_wider(id_cols = score_interval, names_from = row_order, values_from = unc_data)
+  # 
+  
+# x %>%
+#     mutate(score_interval = ntile(mean_score, n = 10)) %>%
+#     select(clinical, mean_score, score_interval, unc_data) %>%
+#     # ggplot(aes(factor(score_interval), mean_metric)) +
+#     # geom_boxplot()
+#     group_by(score_interval) %>%
+#     arrange(unc_data) %>%
+#     mutate(row_order = row_number()) %>%
+#     group_by(row_order) %>%
+#     mutate(mean_metric = mean(unc_data)) %>%
+#     ungroup() %>%
+#     # ggplot(aes(factor(score_interval), mean_metric)) +
+#     #   geom_boxplot()
+#     group_by(score_interval) %>%
+#     mutate(reliability_score = ntile(mean_metric, 3)) %>%
+#     # ggplot(aes(factor(reliability_score), mean_score)) +
+#     #   geom_boxplot() +
+#     #   facet_wrap(vars(score_interval))
+#     ggplot(aes(mean_score, unc_data)) +
+#       geom_point(aes(color = factor(reliability_score)))
+    # group_by(reliability_score) %>%
+    # roc_auc(clinical, mean_score )
+    
 # 
-# 
-# tmp2 %>%
-#   mutate(quant_residuals = vector_quantiles_decipher) %>%
-#   arrange(sd) %>%
-#   View()
-
-
-# tmp2 %>%
-#   mutate(quant_residuals = vector_quantiles_decipher) %>%
-#   ggplot(aes(cnvscore_score, quant_residuals)) +
-#     geom_point()
-#  
-
-# 
-# 
-# tmp2 %>%
-#   mutate(quant_residuals = vector_quantiles_decipher)  %>%
-#   # filter(clinical == 'benign') %>% 
-#   ggplot(aes(cnvscore_score, sd)) +
-#   # geom_point(aes(fill = quant_residuals), color = 'black',  shape = 21, show.legend = T) +
-#   geom_point(aes(color = quant_residuals),  show.legend = T) +
-#   geom_smooth(method = 'gam', formula = y ~ s(x, bs = "cr")) +
-#   theme_minimal() +
-#   scale_color_distiller(palette = "Spectral") +
-#   theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1)) +
-#   facet_wrap(vars(clinical))
-
-# test1 <- res_df %>% filter(source == 'decipher') %>% select(quant_residuals)
-# test1 <- tmp2 %>% 
-#   select(-sd, -dist_pathogenic, -dist_benign) %>%
-#   bind_cols(test1 %>% rename(sd = quant_residuals))
-
-
-
-
-
-# comp_structure_clinvar$tmp_predicted %>%
-#   select(.pred_pathogenic, sd, mad) %>%
-#   ggplot(aes(.pred_pathogenic, sd)) +
-#     geom_point() +
-#     geom_smooth()
-# 
-# comp_structure_clinvar$tmp_predicted %>%
-#   select(.pred_pathogenic, sd, mad) %>%
-#   ggplot(aes(.pred_pathogenic, mad)) +
-#   geom_point() +
-#   geom_smooth()
-# 
-# comp_structure_clinvar$tmp_predicted %>% 
-#   select(.pred_pathogenic, sd) %>% correlate(method = 'spearman')
-# comp_structure_clinvar$tmp_predicted %>% 
-#   select(.pred_pathogenic, mad) %>% correlate(method = 'spearman')
-
-
-## Svscore------------------------
-
-# 
-# result_svscore_manolo_deletion <- 1:22 %>% map_dfr(function(x) {
+#   trendline_tmp1 <- gam(unc_data ~ s(mean_score, bs="cr"), data= x %>% filter(mean_score < 0.5))
+#   trendline_tmp2 <- gam(unc_data ~ s(mean_score, bs="cr"), data= x %>% filter(mean_score >= 0.5))
 #   
-#   first_df <- readLines(glue("rival_cnvscore/svscore/output_{x}.del.vcf"))
+#   tmp_tibble1 <- x %>%
+#     filter(mean_score < 0.5) %>%
+#     mutate(gam_residuals = residuals(trendline_tmp1)) %>%
+#     mutate(score_interval = ntile(mean_score, n = 10)) %>%
+#     group_by(score_interval) %>%
+#     mutate(reliability_score = ntile(-gam_residuals, 3)) %>%
+#     ungroup() %>%
+#     mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
 #   
-#   tmp_df <-  read_tsv(glue('rival_cnvscore/svscore/output_{x}.del.vcf'), skip = sum(grepl('^##', first_df)))
 #   
-#   tmp_df <-  read_tsv(glue('rival_cnvscore/svscore/output_{x}.del.vcf'), skip = sum(grepl('^##', first_df)))
-# 
-#   if (nrow(tmp_df) == 0) return(tibble())
+#   tmp_tibble2 <- x %>%
+#     filter(mean_score >= 0.5) %>%
+#     mutate(gam_residuals = residuals(trendline_tmp2)) %>%
+#     mutate(score_interval = ntile(mean_score, n = 10)) %>%
+#     group_by(score_interval) %>%
+#     mutate(reliability_score = ntile(-gam_residuals, 3)) %>%
+#     ungroup() %>%
+#     mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
 #   
-#   tmp_df %>% 
-#     rename(id = ID) %>%
-#     mutate(.pred_pathogenic = str_extract(INFO, 'SVSCOREMAX=(.*?);')) %>%
-#     mutate(.pred_pathogenic = str_remove(.pred_pathogenic, ';')) %>%
-#     mutate(.pred_pathogenic = str_remove(.pred_pathogenic, 'SVSCOREMAX=')) %>%
-#     mutate(.pred_pathogenic = as.numeric(.pred_pathogenic)) %>%
-#     select(id, .pred_pathogenic)
+#   tmp_tibble <- tmp_tibble1 %>% bind_rows(tmp_tibble2)
+  
+
+    
+  # tmp_tibble1 %>%
+  #   bind_rows(tmp_tibble2) %>%
+  #   group_by(reliability_score) %>%
+  #   roc_auc(clinical, mean_score)
+  
+  # tmp_tibble1 %>%
+  #   bind_rows(tmp_tibble2) %>%
+  #   ggplot(aes(mean_score, unc_data)) +
+  #   geom_point(aes(color = factor(reliability_score)))
+    # facet_wrap(vars(score_interval))
+  
+  # tmp_tibble1 %>%
+  #   bind_rows(tmp_tibble2) %>%
+  #   ggplot(aes(factor(reliability_score), mean_score)) +
+  #   geom_boxplot() +
+  #   facet_wrap(vars(score_interval))
+####
+  
+  # x <- decipher_decipher_ens_del_score
+  # cr, ts
+  # https://stats.stackexchange.com/questions/12223/how-to-tune-smoothing-in-mgcv-gam-model
+  # trendline_tmp <- gam(unc_data ~ s(mean_score, bs="cr", m = 1, k = 6), data= x, 
+  #                      # gamma = 2,
+  #                      # method = 'REML',
+  #                      select = TRUE)
+  
+  x_gam <- x %>% mutate(mean_score = ifelse(mean_score == 0.5, mean_score, 1 - mean_score))
+  
+  trendline_tmp <- gam(unc_data ~ s(mean_score, 
+                                    bs="ts", 
+                                    m = 1, 
+                                    k = 30), data= x, 
+                       gamma = 0.5,
+                       method = 'REML',
+                       select = TRUE
+  )
+  
+  # trendline_tmp <- gam(unc_data ~ s(mean_score, bs="cr"), data= x)
+  
+  # plot(trendline_tmp)
+  
+  # x %>% ggplot(aes(mean_score, unc_data)) + geom_point() + 
+  #   geom_smooth(formula = 'y ~ s(x, bs = "cs")')
+
+
+  tmp_tibble <- x %>%
+    mutate(gam_residuals = residuals(trendline_tmp)) %>%
+    mutate(score_interval = ntile(mean_score, n = 10)) %>%
+    # mutate(split_score = ifelse(mean_score > 0.5, 'up', 'down')) %>%
+    # group_by(split_score, score_interval) %>%
+    group_by(score_interval) %>%
+    mutate(reliability_score = ntile(-gam_residuals, 2)) %>%
+    ungroup() %>%
+    mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  
+  # tmp_tibble %>% group_by(reliability_score) %>% roc_auc(clinical, mean_score)
+  # 
+  # 
+  # tmp_tibble %>%
+  #   ggplot(aes(mean_score, unc_data)) + geom_point(aes(color = factor(reliability_score)))
+#
 #   
-# })
-# 
-# result_svscore_manolo_deletion <- result_svscore_manolo_deletion %>%
-#   left_join(df_manolo %>% select(id, clinical), by = 'id')
-# 
-# 
-# svscore_del_manolo_auc <- just_auc(result_svscore_manolo_deletion)
+#   
+#   
+#   
+  # p1 <- tmp_tibble %>% filter(score_interval == 3) %>% ggplot(aes(mean_score, unc_data)) + geom_point(aes(color = factor(score_interval)), alpha = 0.4) + theme_minimal()
+  # 
+  # p2 <- tmp_tibble %>% filter(score_interval == 3) %>% ggplot(aes(mean_score, unc_data)) + geom_point(aes(color = factor(reliability_score)), alpha = 0.4) + facet_wrap(vars(reliability_score)) + theme_minimal()
+  # 
+  # 
+  # p3 <-   tmp_tibble %>%
+  #   ggplot(aes(factor(score_interval), unc_data)) +
+  #   geom_boxplot(aes(fill = factor(reliability_score))) +
+  #   theme_minimal()
+  # 
+  # tmp_tibble %>% filter(score_interval == 3) %>% ggplot(aes(mean_score, unc_data)) + geom_point(aes(color = gam_residuals), alpha = 0.4) + facet_wrap(vars(reliability_score)) + theme_minimal() + scale_color_viridis_c()
+  # tmp_tibble %>% ggplot(aes(unc_data)) + geom_density(aes(color = factor(reliability_score), alpha = 0.4)) + facet_wrap(vars(score_interval)) + theme_minimal()
+  # 
+  # p3 / (p1 + p2)
+#   
+  
+  # tmp_tibble %>%
+  #   ggplot(aes(factor(score_interval), unc_data)) +
+  #   geom_boxplot(aes(fill = factor(reliability_score))) +
+  #   theme_minimal()
+#   
+#   
+  # tmp_tibble %>%
+  #   filter(!score_interval %in% c(3,4,8,9)) %>%
+  #   group_by(reliability_score) %>%
+  #   roc_auc(clinical, mean_score)
+#   
+#   p2 <- tmp_tibble %>%
+#     group_by(score_interval, reliability_score) %>%
+#     roc_auc(clinical, mean_score) %>%
+#     ggplot(aes(factor(score_interval), .estimate)) +
+#       geom_point(aes(color = factor(reliability_score)))
+#   
+#   tmp_tibble %>% count(score_interval, clinical)
+#   
+#   
+#   tmp_tibble %>% ggplot(aes(mean_score, unc_data)) + geom_point(aes(color = factor(reliability_score)))
+#   tmp_tibble %>% group_by(reliability_score) %>% roc_auc(clinical, mean_score)
+  # x %>%
+  #   mutate(score_interval = ntile(mean_score, n = 10)) %>%
+  #   group_by(score_interval) %>%
+  #   mutate(rank_data = percent_rank(-unc_data)) %>%
+  #   # select(unc_data, rank_data)
+  #   mutate(rank_know = percent_rank(-unc_know)) %>%
+  #   mutate(rank_total = rank_data + rank_know) %>%
+  #   # ggplot(aes())
+  #   mutate(reliability_score = ntile(rank_total, n = 3)) %>%
+  #   group_by(reliability_score) %>%
+  #   ggplot(aes(factor(reliability_score), mean_score)) + geom_boxplot() + facet_wrap(vars(score_interval))
+  #   # select(rank_total, reliability_score, mean_) %>%
+  #   # roc_auc(clinical, mean_score)
+  
+
+    
+  
+  # tmp_tibble %>% 
+  # tmp_tibble %>% ggplot(aes(mean_score, sd_score)) + geom_point()
+  # tmp_tibble <- tmp_tibble %>% mutate(reliability_score = ifelse(mean_score <= 0.02, 3, reliability_score))
+  # tmp_tibble %>% ggplot(aes(factor(reliability_score), gam_residuals)) + geom_boxplot() + facet_wrap(vars(score_interval))
+  
+  # tmp_tibble %>% filter(reliability_score == 2) %>% pull(gam_residuals) %>% summary()
+  # IMPORTANT!!!
+  
+
+  tmp_tibble <- tmp_tibble %>%
+  # filter(mean_score > 0.2) %>%
+  filter(mean_score > 0.03 & mean_score <= 0.97) %>%
+    bind_rows(
+  tmp_tibble %>% filter(mean_score <= 0.03 | mean_score > 0.97) %>% mutate(reliability_score = 1),
+  tmp_tibble %>% filter(mean_score <= 0.03 | mean_score > 0.97) %>% mutate(reliability_score = 2),
+  tmp_tibble %>% filter(mean_score <= 0.03 | mean_score > 0.97) %>% mutate(reliability_score = 3)
+
+    )
+  
+  # tmp_tibble <- tmp_tibble %>% mutate(reliability_score = ifelse(mean_score >= 0.95 | mean_score <= 0.05, 3, reliability_score))
+  # tmp_tibble <- tmp_tibble %>% filter(mean_score >= 0.05 & mean_score <= 0.95)
+  
+  # tmp_tibble %>% ggplot(aes(factor(reliability_score), gam_residuals)) + geom_boxplot() + facet_wrap(vars(score_interval))
+  
+  # tmp_tibble <- x %>%
+  #   mutate(reliability_score = ntile(-unc_data, 3))
+  
+  tmp_label <- tmp_tibble %>% mutate(label = case_when(
+    mean_score >= 0.5 & clinical == 'pathogenic' ~ 'TP',
+    mean_score < 0.5 & clinical == 'benign' ~ 'TN',
+    mean_score >= 0.5 & clinical == 'benign' ~ 'FP',
+    mean_score < 0.5 & clinical == 'pathogenic' ~ 'FN'
+  ))  %>%
+    count(reliability_score, label) %>%
+    pivot_wider(id_cols = reliability_score, names_from = label, values_from = n) %>%
+    replace(is.na(.), 0)
+  
+  n_final_bins <- nrow(tmp_label)
+  
+  if (!'TP' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(TP = rep(0, n_final_bins)))
+  if (!'TN' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(TN = rep(0, n_final_bins)))
+  if (!'FP' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(FP = rep(0, n_final_bins)))
+  if (!'FN' %in% colnames(tmp_label)) tmp_label <- tmp_label %>% bind_cols(tibble(FN = rep(0, n_final_bins)))
+  
+  
+  
+  tmp_label <- tmp_label %>%
+    mutate(sensitivity = (TP / (TP + FN))) %>%
+    mutate(specificity = (TN / (TN + FP))) %>%
+    select(reliability_score, sensitivity, specificity)
+  
+    
+  tmp_auroc <- tmp_tibble %>% group_by(reliability_score) %>% roc_auc(clinical, mean_score) %>% rename(auroc = .estimate) 
+  tmp_aupr <- tmp_tibble %>% group_by(reliability_score) %>% pr_auc(clinical, mean_score) %>% rename(aupr = .estimate) %>% select(reliability_score, aupr)
+  
+  tmp_label %>%
+      left_join(tmp_auroc, id = 'reliability_score') %>%
+      left_join(tmp_aupr, id = 'reliability_score') %>%
+    mutate(model = model, dataset = dataset, type = type) %>%
+  select(model, dataset, type, reliability_score, auroc, aupr, sensitivity, specificity) %>%
+    ungroup()
+
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - GENERATE REFERENCES
+# ------------------------------------------------------------------------------
 
 
-# res_df <- df_for_uncertainty[[3]] %>%
-#   mutate(gam_residuals = residuals(a)) %>%
-#   # mutate(quant_residual = gam_residuals)
-#   mutate(score_interval = cut_interval(.pred_pathogenic, n = 10)) %>%
-#   group_by(score_interval) %>%
-#   # group_by(clinical, score_interval) %>%
-#   mutate(quant_residuals = ntile(gam_residuals, n = 100) ) %>%
-#   mutate(predict_clinical = if_else(.pred_pathogenic >= 0.5, 'pathogenic', 'benign')) %>%
-#   group_by(predict_clinical) %>%
-#   mutate(rank_score = ntile(.pred_pathogenic, n = 100)) %>%
-#   ungroup() %>%
-#   mutate(rank_score =
-#            ifelse(predict_clinical == 'pathogenic', 100 - rank_score, rank_score)) %>%
-#   mutate(quant_residuals = rank_score + (1 * quant_residuals))
+generate_ref <- function(x) {
+  
+  #  x <- clinvar_clinvar_score
+  # 
+  # trendline_unc_data <- gam(unc_data ~ s(mean_score, bs="cr"),
+  #                      data= x)
+  # #
+  # trendline_unc_know <- gam(unc_know ~ s(mean_score, bs="cr"),
+  #                           data= x)
+  # #
+  # #
+  # res_df <- x %>%
+  #   mutate(gam_residuals_unc_data = residuals(trendline_unc_data)) %>%
+  #   mutate(gam_residuals_unc_know = residuals(trendline_unc_know)) %>%
+  #   mutate(score_interval = ntile(mean_score, n = 10)) %>%
+  #   group_by(score_interval) %>%
+  #   mutate(reliability_score_data = ntile(-gam_residuals_unc_data, 3)) %>%
+  #   mutate(reliability_score_know = ntile(-gam_residuals_unc_know, 3)) %>%
+  #   mutate(rank_residuals_data = percent_rank(-gam_residuals_unc_data)) %>%
+  #   mutate(rank_residuals_know = percent_rank(-gam_residuals_unc_know)) %>%
+  #   ungroup()
+  # 
+  # p1 <- res_df %>% 
+  #   ggplot(aes(rank_residuals_data, rank_residuals_know)) +
+  #     geom_point(aes(color = factor(score_interval)))
+  # 
+  # res_df %>%
+  #   filter(score_interval == 5) %>%
+  #   pull(mean_score) %>%
+  #   summary()
+  # 
+  # res_df %>%
+  #   ggplot(aes(mean_score, unc_data)) +
+  #     geom_point(aes(color = factor(reliability_score_data))) +
+  #   theme_minimal()
+  # 
+  # res_df %>% 
+  #   ggplot(aes(factor(reliability_score_data), mean_score)) +
+  #     geom_boxplot() +
+  #     facet_wrap(vars(score_interval))
+  # 
+  # 
+  # 
+  # p2 <- res_df %>% 
+  #   filter(!score_interval %in% c(1,2,3,4)) %>%
+  #   mutate(rank_residuals_data = ifelse(mean_score <= 0.02, 1, rank_residuals_data)) %>%
+  #   mutate(rank_residuals_know = ifelse(mean_score <= 0.02, 1, rank_residuals_know)) %>%
+  #   ggplot(aes(rank_residuals_data, rank_residuals_know)) +
+  #   geom_point(aes(color = factor(score_interval)))
+  # 
+  # p1 + p2
+  #   
+  # res_df %>% 
+  #   mutate(reliability_score_data = ifelse(mean_score <= 0.02, 3, reliability_score_data)) %>%
+  #   mutate(reliability_score_know = ifelse(mean_score <= 0.02, 3, reliability_score_know)) %>%
+  #   group_by(reliability_score_know) %>% roc_auc(clinical, mean_score)
+  # 
+  # res_df %>% 
+  #   filter(mean_score > 0.02) %>%
+  #   group_by(reliability_score_know) %>%
+  #   roc_auc(clinical, mean_score)
+  # 
+  # res_df %>% 
+  #   ggplot(aes(mean_score, unc_total)) +
+  #     geom_point()
+  #   
+  # 
+  # 
+  # res_df %>% count(reliability_score_data, reliability_score_know) %>%
+  #   mutate(perc = 100*(n / sum(n)))
+  # 
+  
+  
+  trendline_tmp <- gam(unc_data ~ s(mean_score, bs="cr"), 
+                           data= x)
+  
+  
+  res_df <- x %>%
+    mutate(gam_residuals = residuals(trendline_tmp)) %>%
+    mutate(score_interval = ntile(mean_score, n = 10)) %>%
+    group_by(score_interval) %>%
+    mutate(reliability_score = ntile(-gam_residuals, 3)) %>%
+    ungroup()
+  
+  score_intervals_df <- res_df %>% 
+    group_by(score_interval) %>% 
+    summarise(max_score = max(mean_score), 
+              min_score = min(mean_score)) %>%
+    arrange(score_interval)
+  
+  ref_quantiles <- res_df %>%
+    left_join(score_intervals_df, by = 'score_interval') %>%
+    mutate(score_interval = as.character(score_interval)) %>%
+    select(id, score_interval, min_score, max_score, reliability_score, unc_know, unc_data, gam_residuals,
+           mean_score, clinical) %>%
+    group_by(score_interval) %>%
+    mutate(rank_residuals = percent_rank(-gam_residuals)) %>% 
+    group_by(score_interval, rank_residuals) %>%
+    mutate(max_rank_residuals = max(gam_residuals)) %>%
+    mutate(min_rank_residuals = min(gam_residuals)) %>%
+    ungroup()
+  
+  
+  # ref_quantiles %>% mutate(gam_)
+  
+  list(ref_quantiles, trendline_tmp)
+  
+  # 
+  
+  
+  
+  # ref_quantiles %>% ggplot(aes(unc_know, unc_data)) + geom_point()
+  # 
+  # ref_quantiles %>%
+  #   ggplot(aes(mean_score, unc_data)) +
+  #     geom_point(aes(color = rank_residuals)) +
+  #   scale_color_viridis_c()
+  # 
+  # ref_quantiles %>%
+  #   ggplot(aes(mean_score, unc_data)) +
+  #   geom_point(aes(color = rank_residuals)) +
+  #   scale_color_viridis_c()
+  # 
+  # ref_quantiles %>%
+  #   ggplot(aes(mean_score, unc_know)) +
+  #   geom_point(aes(color = factor(reliability_score))) +
+  #   scale_color_viridis_d()
+  # 
+  # ref_quantiles %>%
+  #   ggplot(aes(mean_score, unc_data)) +
+  #   geom_point(aes(color = factor(reliability_score))) +
+  #   scale_color_viridis_d()
+  # 
+  # 
+  # ref_quantiles %>% 
+  #   filter(mean_score > 0.05 & mean_score < 0.95) %>%
+  #   group_by(reliability_score) %>%
+  #   roc_auc(clinical, mean_score)
+  # 
+  # ref_quantiles %>% filter(mean_score > 0.05 & mean_score < 0.95) %>% 
+  #   group_by(reliability_score) %>%
+  #   roc_auc(clinical, mean_score)
+  # 
+  # 
+  # ref_quantiles %>% group_by(reliability_score) %>% pr_auc(clinical, mean_score)
+  # 
+  # 
+  # ref_quantiles %>% 
+  #   filter(!score_interval %in% c(1, 2)) %>% 
+  #   group_by(reliability_score) %>% roc_auc(clinical, mean_score)
+  # 
+  # ref_quantiles %>%  filter(!score_interval %in% c(1, 2)) %>% group_by(reliability_score) %>% pr_auc(clinical, mean_score)
+  # 
+  # 
+  # ref_quantiles %>% 
+  #   filter(!score_interval %in% c(1, 2, 3)) %>% 
+  #   ggplot(aes(factor(reliability_score), mean_score)) + 
+  #   geom_boxplot() + 
+  #   facet_wrap(vars(score_interval))
+  # 
+  # ref_quantiles %>%
+  #   filter(score_interval %in% c(1, 2, 3)) %>% 
+  #   pull(mean_score) %>%
+  #   summary()
+  # 
+  # ref_quantiles %>% 
+  #   filter(mean_score > 0.2) %>%
+  #   group_by(reliability_score) %>% 
+  #   roc_auc(clinical, mean_score)
+    
+
+}
 
 
-# mutate(score_interval = str_remove(score_interval, ']')) %>%
-# mutate(score_interval = str_remove(score_interval, '\\[')) %>%
-# mutate(score_interval = str_remove(score_interval, '\\(')) %>%
-# separate(score_interval, 
-#          into = c('min_interval', 'max_interval'), sep = ',') %>%
-# mutate(min_interval = as.numeric(min_interval),
-#        max_interval = as.numeric(max_interval))
+# ------------------------------------------------------------------------------
+# CALCULATE AUC ROC AND PR
+# ------------------------------------------------------------------------------
+
+do_auc_roc_pr <- function(x, model = NULL, dataset = NULL, type = NULL) {
+  
+  # x <- omim_bancco_dup_score
+  
+  if ('.pred_pathogenic' %in% colnames(x)) x <- x %>% rename(mean_score = .pred_pathogenic)
+  
+  x <- x %>% mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  
+  tibble(
+    model = model,
+    dataset = dataset,
+    type = type,
+    auroc = x %>% roc_auc(clinical, mean_score) %>% pull(.estimate),
+    aupr = x %>% pr_auc(clinical, mean_score) %>% pull(.estimate)
+  )
+
+} 
 
 
-# test1 <- res_df %>%
-#   group_by(score_interval) %>%
-#   summarise(median = median(sd)) %>%
-#   filter(score_interval %in% c(1, i)) %>%
-#   pull(median)
-# 
-# diff_test1 <- test1[2] - test1[1]
+# ------------------------------------------------------------------------------
+# GENERATE MODEL ENSEMBLE
+# ------------------------------------------------------------------------------
 
-# test1_tbl <- test1_tbl %>% bind_rows(tibble(id = i, diff = diff_test1))
-# }
-# 
-# test1_tbl %>%
-#   ggplot(aes(id, diff)) +
-#     geom_point()
-# mutate(predict_clinical = if_else(.pred_pathogenic >= 0.5, 'pathogenic', 'benign')) %>%
-# group_by(predict_clinical) %>%
-# mutate(rank_score = ntile(.pred_pathogenic, n = 100)) %>%
-# ungroup()
-# mutate(rank_score =
-#          ifelse(predict_clinical == 'pathogenic', 100 - rank_score, rank_score)) %>%
-# mutate(quant_residuals = 0 * rank_score + (1  * quant_residuals))
+generate_ensemble <- function(y) {
+  
+  # y <- input_check_cnv_del_pathogenic_clinvar %>%
+  #   bind_rows(input_check_cnv_del_benign %>% select(-LastEvaluated, -NumberSubmitters))
 
+  
+plan('multiprocess', workers = 10)  
+  
+tmp_result <- 1:10 %>% future_map(function(x) {
+    
 
+    match_tmp <- matching_length(bin_length = 100, y)
+    
+    annotated_tmp <- check_cnv_v2(match_tmp %>% select(-id))
+    
+    gbm_tmp <- chrom_aware(input_tbl = annotated_tmp,
+                                           tag_variant = 'deletion',
+                                           tag_formule = 'human_no_control',
+                                           model_name = 'xgboost',
+                                           formule_model = human_no_control,
+                                           list_hyper = NULL)
+    
+    gbm_tmp[[2]] <- paste0(gbm_tmp[[2]],' - ens_', x)
+    
+    results <- list(annotated_tmp %>% mutate(ens_id = glue('ens_{x}')), 
+                    gbm_tmp)
+    
+    
+    
+})
 
-# mutate(combined_score = if_else(.pred_pathogenic >= 0.5,
-#                                    rank_score * (sd_residuals),
-#                                   0.5 - ((0.5 - rank_score) * (sd_residuals)))) %>%
+return(tmp_result)
+                                                                                        bind_rows(input_check_cnv_del_benign %>% select(-LastEvaluated, -NumberSubmitters))
+  
+}
 
-
-
-# res_df_combined %>%
-#   select(reliability_score, clinical) %>%
-#   arrange(desc(reliability_score)) %>%
-#   mutate(is_patho = if_else(clinical == 'pathogenic', 1, 0)) %>%
-#   mutate(score_sd = cumsum(is_patho)) %>%
-#   mutate(n_row = row_number()) %>%
-#   select(n_row, score_sd) %>%
-#   left_join(
-# 
-# res_df_combined %>%
-#   select(.pred_pathogenic, clinical) %>%
-#   arrange(desc(.pred_pathogenic)) %>%
-#   mutate(is_patho = if_else(clinical == 'pathogenic', 1, 0)) %>%
-#   mutate(only_score = cumsum(is_patho)) %>%
-#   mutate(n_row = row_number()) %>%
-#   select(n_row, only_score)
-# 
-# ) %>%
-#   pivot_longer(-n_row, names_to = 'tag', values_to = 'n') %>%
-#   mutate(n = n / nrow(res_df_combined[res_df_combined$clinical == 'pathogenic',])) %>%
-#   ggplot(aes(n_row, n)) +
-#     geom_point(aes(color = tag))
-#   # coord_cartesian(xlim = c(0,100))
+# ------------------------------------------------------------------------------
+# PREDICT MODEL ENSEMBLE
+# ------------------------------------------------------------------------------
 
 
+predict_ensemble <- function(ensemble, dataset_original, bench_mode = FALSE,
+                             model = NULL, dataset = NULL, type = NULL) {
+  
 
+  # ensemble <- clinvar_ens_del
+  # dataset_original <- clinvar_ens_del_data
+
+  
+a <-   ensemble %>% map_dfr(function(x) {
+    
+    predict_chrom_aware(x[[2]], dataset_original) %>% mutate(ens_id = x[[2]]$tag)
+    
+  })
+
+
+tmp1 <- a %>%
+  group_by(ens_id) %>%
+  roc_auc(clinical, .pred_pathogenic) %>%
+  mutate(ens_id = str_extract(ens_id, 'ens_[0-9]+'))
+
+tmp2 <- a %>%
+  group_by(id) %>%
+  mutate(mean_score = mean(.pred_pathogenic)) %>%
+  select(id, mean_score, clinical) %>%
+  distinct() %>%
+  ungroup() %>%
+  roc_auc(clinical, mean_score) %>%
+  mutate(ens_id = 'average_score') 
+  
+
+if (bench_mode) {
+  
+  print('done.')
+  
+  tmp_result <- tmp1 %>% bind_rows(tmp2) %>% 
+    mutate(model = model, dataset = dataset, type = type) %>%
+    rename(auroc = .estimate) %>%
+    select(-.metric, -.estimator)
+  
+  return(tmp_result)
+}
+
+
+
+a %>%
+  mutate(inv_score = 1 - .pred_pathogenic) %>%
+  group_by(id) %>%
+  mutate(mean_score = mean(.pred_pathogenic)) %>%
+  mutate(mean_inv_score = mean(inv_score)) %>%
+  mutate(log_mean_score = -log(mean_score)) %>%
+  mutate(log_mean_inv_score = -log(mean_inv_score)) %>%
+  mutate(product_score = mean_score * log_mean_score) %>%
+  mutate(product_inv_score = mean_inv_score * log_mean_inv_score) %>%
+  mutate(unc_total = product_score + product_inv_score) %>%
+  ungroup() %>%
+  mutate(product_log_score = -log(.pred_pathogenic)*.pred_pathogenic) %>%
+  mutate(product_log_inv_score = -log(1 - .pred_pathogenic)*(1 - .pred_pathogenic)) %>%
+  mutate(sum_both_product = product_log_score + product_log_inv_score) %>%
+  group_by(id) %>%
+  mutate(unc_data = mean(sum_both_product)) %>%
+  select(id, clinical, mean_score, unc_total, unc_data) %>%
+  distinct() %>%
+  mutate(unc_know = unc_total - unc_data) %>%
+  ungroup() %>%
+  left_join(a %>% group_by(id) %>% summarise(sd_score = sd(.pred_pathogenic))
+)
+
+}
+
+
+
+# ------------------------------------------------------------------------------
+# FUNCTION - GENERATE COMPARISON BETWEEN TWO MODELS OUTCOME - RAW UNC. 
+# ------------------------------------------------------------------------------
+
+
+do_cd_comparison3 <- function(reference, outcome, dataset, type) {
+  
+  # reference <- clinvar_decipher_score
+  # outcome <- decipher_decipher_score
+  
+  # reference <- reference %>% mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  # outcome <- outcome %>% mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  # 
+  reference_unc_know_summary <- reference$unc_know %>% summary()
+  reference_unc_data_summary <- reference$unc_data %>% summary()
+  
+  outcome_unc_know_summary <- outcome$unc_know %>% summary()
+  outcome_unc_data_summary <- outcome$unc_data %>% summary()
+  
+  
+  reference %>% ggplot(aes(unc_data)) + geom_histogram(fill = 'steelblue', color = 'black')
+  outcome %>% ggplot(aes(unc_data)) + geom_histogram(fill = 'steelblue', color = 'black')
+  
+  
+  # reference <- reference %>% mutate(unc_data = rescale(unc_data), unc_know = rescale(unc_know))
+  # outcome <- outcome %>% mutate(unc_data = rescale(unc_data), unc_know = rescale(unc_know))
+  
+  p_value_unc_data_less <- wilcox.test(reference$unc_data, outcome$unc_data, alternative = 'less', paired = TRUE) %>% tidy() %>% pull(p.value)
+  p_value_unc_data_greater <- wilcox.test(reference$unc_data, outcome$unc_data, alternative = 'greater', paired = TRUE) %>% tidy() %>% pull(p.value)
+  
+  p_value_unc_know_less <- wilcox.test(reference$unc_know, outcome$unc_know, alternative = 'less', paired = TRUE) %>% tidy() %>% pull(p.value)
+  p_value_unc_know_greater <- wilcox.test(reference$unc_know, outcome$unc_know, alternative = 'greater', paired = TRUE) %>% tidy() %>% pull(p.value)
+  
+  
+  clinvar_auroc <- reference %>% roc_auc(clinical, mean_score) %>% pull(.estimate) %>% round(2)
+  decipher_auroc <- outcome %>% roc_auc(clinical, mean_score) %>% pull(.estimate) %>% round(2)
+  
+  
+  tmp1 <- reference  %>% 
+    mutate(rdu = unc_data / unc_total) %>%
+    rename(rdu_clinvar = rdu) %>%
+    rename(mean_score_clinvar = mean_score,
+           unc_data_clinvar = unc_data,
+           unc_know_clinvar = unc_know,
+           unc_total_clinvar = unc_total) %>%
+    select(id, clinical, rdu_clinvar, mean_score_clinvar, unc_total_clinvar, unc_data_clinvar, unc_know_clinvar)
+  
+  tmp2 <- outcome  %>% 
+    mutate(rdu = unc_data / unc_total) %>%
+    rename(rdu_decipher = rdu) %>%
+    rename(mean_score_decipher = mean_score,
+           unc_data_decipher = unc_data,
+           unc_know_decipher = unc_know,
+           unc_total_decipher = unc_total) %>%
+    
+    select(id, clinical, rdu_decipher, mean_score_decipher, unc_total_decipher, unc_data_decipher, unc_know_decipher)
+  
+  best_unc_data_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(unc_data_clinvar < unc_data_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_unc_data_scaled_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(unc_data_clinvar = rescale(unc_data_clinvar),
+           unc_data_decipher = rescale(unc_data_decipher)) %>%
+    mutate(def_score = ifelse(unc_data_clinvar <= unc_data_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_unc_know_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(unc_know_clinvar < unc_know_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_rdu_lower_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(rdu_clinvar <= rdu_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_rdu_higher_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(rdu_clinvar >= rdu_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  
+  best_unc_total_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(unc_total_clinvar <= unc_total_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_unc_total_scaled_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(unc_total_clinvar = rescale(unc_total_clinvar),
+           unc_total_decipher = rescale(unc_total_decipher)) %>%
+    mutate(def_score = ifelse(unc_total_clinvar <= unc_total_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  
+  tibble(dataset = dataset,
+         type = type,
+         
+         clinvar_auroc = clinvar_auroc,
+         decipher_auroc = decipher_auroc,
+         
+         best_unc_total_auroc = best_unc_total_auroc,
+         best_unc_total_scaled_auroc = best_unc_total_scaled_auroc,
+         best_unc_data_auroc = best_unc_data_auroc,
+         best_unc_data_scaled_auroc = best_unc_data_scaled_auroc,
+         best_unc_know_auroc = best_unc_know_auroc,
+         best_rdu_lower_auroc = best_rdu_lower_auroc,
+         best_rdu_higher_auroc = best_rdu_higher_auroc,
+         
+         
+         p_value_unc_data_less = p_value_unc_data_less,
+         p_value_unc_data_greater = p_value_unc_data_greater,
+         
+         p_value_unc_know_less = p_value_unc_know_less,
+         p_value_unc_know_greater = p_value_unc_know_greater,
+         
+         
+         q1_clinvar_unc_data = as.numeric(reference_unc_data_summary[2]),
+         q2_clinvar_unc_data = as.numeric(reference_unc_data_summary[3]),
+         q3_clinvar_unc_data = as.numeric(reference_unc_data_summary[5]),
+         q1_decipher_unc_data = as.numeric(outcome_unc_data_summary[2]),
+         q2_decipher_unc_data = as.numeric(outcome_unc_data_summary[3]),
+         q3_decipher_unc_data = as.numeric(outcome_unc_data_summary[5]),
+         
+         
+         q1_clinvar_unc_know = as.numeric(reference_unc_know_summary[2]),
+         q2_clinvar_unc_know = as.numeric(reference_unc_know_summary[3]),
+         q3_clinvar_unc_know = as.numeric(reference_unc_know_summary[5]),
+         q1_decipher_unc_know = as.numeric(outcome_unc_know_summary[2]),
+         q2_decipher_unc_know = as.numeric(outcome_unc_know_summary[3]),
+         q3_decipher_unc_know = as.numeric(outcome_unc_know_summary[5]),
+         
+         
+  )
+  
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - GENERATE COMPARISON BETWEEN TWO MODELS OUTCOME - RAW UNC. 
+# ------------------------------------------------------------------------------
+
+
+do_cd_comparison2 <- function(reference, outcome, dataset, type) {
+  
+  # reference <- clinvar_clinvar_rel
+  # outcome <- decipher_clinvar_rel
+  
+  reference <- reference %>% mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  outcome <- outcome %>% mutate(clinical = factor(clinical, levels = c('pathogenic', 'benign')))
+  
+  reference_unc_know_summary <- reference$unc_know %>% summary()
+  reference_unc_data_summary <- reference$unc_data %>% summary()
+  
+  outcome_unc_know_summary <- outcome$unc_know %>% summary()
+  outcome_unc_data_summary <- outcome$unc_data %>% summary()
+  
+  
+  reference %>% ggplot(aes(unc_data)) + geom_histogram(fill = 'steelblue', color = 'black')
+  outcome %>% ggplot(aes(unc_data)) + geom_histogram(fill = 'steelblue', color = 'black')
+  
+  
+  # reference <- reference %>% mutate(unc_data = rescale(unc_data), unc_know = rescale(unc_know))
+  # outcome <- outcome %>% mutate(unc_data = rescale(unc_data), unc_know = rescale(unc_know))
+  
+  p_value_unc_data_less <- wilcox.test(reference$unc_data, outcome$unc_data, alternative = 'less', paired = TRUE) %>% tidy() %>% pull(p.value)
+  p_value_unc_data_greater <- wilcox.test(reference$unc_data, outcome$unc_data, alternative = 'greater', paired = TRUE) %>% tidy() %>% pull(p.value)
+  
+  p_value_unc_know_less <- wilcox.test(reference$unc_know, outcome$unc_know, alternative = 'less', paired = TRUE) %>% tidy() %>% pull(p.value)
+  p_value_unc_know_greater <- wilcox.test(reference$unc_know, outcome$unc_know, alternative = 'greater', paired = TRUE) %>% tidy() %>% pull(p.value)
+  
+  
+  clinvar_auroc <- reference %>% roc_auc(clinical, mean_score) %>% pull(.estimate) %>% round(2)
+  decipher_auroc <- outcome %>% roc_auc(clinical, mean_score) %>% pull(.estimate) %>% round(2)
+  
+  
+  tmp1 <- reference  %>% 
+    mutate(rdu = unc_data / unc_total) %>%
+    rename(rdu_clinvar = rdu) %>%
+    rename(mean_score_clinvar = mean_score,
+           unc_data_clinvar = unc_data,
+           unc_know_clinvar = unc_know,
+           unc_total_clinvar = unc_total) %>%
+    select(id, clinical, rdu_clinvar, mean_score_clinvar, unc_total_clinvar, unc_data_clinvar, unc_know_clinvar)
+  
+  tmp2 <- outcome  %>% 
+    mutate(rdu = unc_data / unc_total) %>%
+    rename(rdu_decipher = rdu) %>%
+    rename(mean_score_decipher = mean_score,
+           unc_data_decipher = unc_data,
+           unc_know_decipher = unc_know,
+           unc_total_decipher = unc_total) %>%
+
+    select(id, clinical, rdu_decipher, mean_score_decipher, unc_total_decipher, unc_data_decipher, unc_know_decipher)
+  
+  best_unc_data_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(unc_data_clinvar < unc_data_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_unc_know_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(unc_know_clinvar < unc_know_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_rdu_lower_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(rdu_clinvar <= rdu_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  best_rdu_higher_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(rdu_clinvar >= rdu_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+  
+  
+  best_unc_total_auroc <- tmp1 %>%
+    left_join(tmp2) %>%
+    mutate(def_score = ifelse(unc_total_clinvar <= unc_total_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+    roc_auc(clinical, def_score) %>%
+    pull(.estimate)
+    
+    best_unc_total_scaled_auroc <- tmp1 %>%
+      left_join(tmp2) %>%
+      mutate(unc_total_clinvar = rescale(unc_total_clinvar),
+             unc_total_decipher = rescale(unc_total_decipher)) %>%
+    mutate(def_score = ifelse(unc_total_clinvar <= unc_total_decipher, mean_score_clinvar,
+                              mean_score_decipher)) %>%
+      roc_auc(clinical, def_score) %>%
+      pull(.estimate)
+  
+  
+  tibble(dataset = dataset,
+         type = type,
+         
+         clinvar_auroc = clinvar_auroc,
+         decipher_auroc = decipher_auroc,
+         
+         best_unc_total_auroc = best_unc_total_auroc,
+         best_unc_total_scaled_auroc = best_unc_total_scaled_auroc,
+         best_unc_data_auroc = best_unc_data_auroc,
+         best_unc_know_auroc = best_unc_know_auroc,
+         best_rdu_lower_auroc = best_rdu_lower_auroc,
+         best_rdu_higher_auroc = best_rdu_higher_auroc,
+         
+         
+         p_value_unc_data_less = p_value_unc_data_less,
+         p_value_unc_data_greater = p_value_unc_data_greater,
+         
+         p_value_unc_know_less = p_value_unc_know_less,
+         p_value_unc_know_greater = p_value_unc_know_greater,
+         
+         
+         q1_clinvar_unc_data = as.numeric(reference_unc_data_summary[2]),
+         q2_clinvar_unc_data = as.numeric(reference_unc_data_summary[3]),
+         q3_clinvar_unc_data = as.numeric(reference_unc_data_summary[5]),
+         q1_decipher_unc_data = as.numeric(outcome_unc_data_summary[2]),
+         q2_decipher_unc_data = as.numeric(outcome_unc_data_summary[3]),
+         q3_decipher_unc_data = as.numeric(outcome_unc_data_summary[5]),
+         
+         
+         q1_clinvar_unc_know = as.numeric(reference_unc_know_summary[2]),
+         q2_clinvar_unc_know = as.numeric(reference_unc_know_summary[3]),
+         q3_clinvar_unc_know = as.numeric(reference_unc_know_summary[5]),
+         q1_decipher_unc_know = as.numeric(outcome_unc_know_summary[2]),
+         q2_decipher_unc_know = as.numeric(outcome_unc_know_summary[3]),
+         q3_decipher_unc_know = as.numeric(outcome_unc_know_summary[5]),
+         
+         
+  )
+  
+}
+
+# ------------------------------------------------------------------------------
+# FUNCTION - CLEAN BENCHMARK
+# ------------------------------------------------------------------------------
+
+clean_benchmark <- function(x, results, dataset, name, type) {
+  
+  # results <- result_clinvar_del
+  # dataset <- clinvar_ens_del_data
+  
+  tmp_df <- results %>%
+    left_join(dataset, by = 'id') %>%
+    group_by(tag)
+    
+   tmp_auroc <- tmp_df %>%
+    roc_auc(clinical, .pred_pathogenic) %>%
+      rename(auroc = .estimate) %>%
+      select(tag, auroc)
+   
+   
+   tmp_auprc <- tmp_df %>%
+     pr_auc(clinical, .pred_pathogenic) %>%
+     rename(auprc = .estimate) %>%
+     select(tag, auprc)
+   
+   
+   tmp_auroc %>%
+     left_join(tmp_auprc, by = 'tag') %>%
+     mutate(dataset = name, type = type)
+  
+}
