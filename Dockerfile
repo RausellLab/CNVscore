@@ -24,7 +24,7 @@ RUN apt-get install cmake -y
 
 RUN R -e "devtools::install_github('egenn/rtemis@c0148033c6c6557cd7b7efc3dc4be002891b282f')"
 
-RUN R -e "devtools::install_github('rnabioco/valr@v0.6.4')"
+RUN R -e "devtools::install_github('rnabioco/valr@v0.6.3')"
 
 RUN R -e "install.packages('tidyr', repos = 'https://cloud.r-project.org')"
 
