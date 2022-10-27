@@ -1,4 +1,4 @@
-FROM rocker/shiny-verse:4.0.0
+FROM rocker/shiny-verse:4.2.1
 
 #libv8-3.14-dev \
 
