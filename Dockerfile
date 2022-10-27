@@ -45,7 +45,6 @@ RUN R -e "devtools::install_version('parsnip', version = '0.1.7', repos = 'http:
 RUN R -e "install.packages(c('shiny', \
 'DT', \
 'yardstick', \
-'parsnip', \
 'glue', \
 'patchwork', \
 'shinycssloaders'), repos = 'https://cloud.r-project.org')"
