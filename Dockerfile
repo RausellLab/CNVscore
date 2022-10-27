@@ -35,7 +35,9 @@ RUN R -e "remotes::install_cran('patchwork', repos = 'https://cloud.r-project.or
 
 RUN R -e "install.packages('https://cran.r-project.org/src/contrib/Archive/randomForest/randomForest_4.6-12.tar.gz', repos=NULL, type='source')"
 
-RUN R -e "install.packages('xgboost')"
+RUN R -e "install_version('xgboost', version = '1.4.1.1', repos = 'http://cran.us.r-project.org')"
+RUN R -e "install_version('parsnip', version = '0.1.7', repos = 'http://cran.us.r-project.org')"
+
 # RUN R -e "remotes::install_version('rstanarm', '2.21.1', repos = 'https://cran.wu.ac.at/')"
 
 
