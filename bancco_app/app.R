@@ -126,10 +126,12 @@ plot_test <- function(x, roc = TRUE) {
 # ------------------------------------------------------------------------------
 # LOAD DATA
 # ------------------------------------------------------------------------------
+# save(clinvar_ens_del3, file = 'bancco_app/models_ens/clinvar_ens_del3.RData')
+# save(decipher_ens_del3, file = 'bancco_app/models_ens/decipher_ens_del3.RData')
 
 source('load_data.R')
-
-# Ensemble models
+# 
+# # Ensemble models
 load('models_ens/logistic_del_length.RData')
 load('models_ens/logistic_del_length.RData')
 
@@ -147,6 +149,9 @@ load('models_ens/logistic_dup_n_genes.RData')
 
 load('models_ens/logistic_del_omim.RData')
 load('models_ens/logistic_dup_omim.RData')
+
+load('models_ens/clinvar_ens_del3.RData')
+load('models_ens/decipher_ens_del3.RData')
 
 
 # ------------------------------------------------------------------------------
@@ -190,9 +195,7 @@ server <- function(input, output) {
     user_input <- read_tsv(input$file1$datapath, 
                            col_names = c('chrom', 'start', 'end', 'variant_class', 'clinical'),
                            col_types = list(chrom = col_character()))
-    
-    test140 <<- user_input
-    
+
     
     user_input <- user_input %>% 
       # mutate(clinical = as.factor(clinical)) %>%
@@ -226,6 +229,9 @@ server <- function(input, output) {
     bind_rows(
     predict_ensemble(clinvar_ens_del, tmp_del) %>% mutate(model = 'ClinVar - DEL')  %>% rename(.pred_pathogenic = mean_score),
     predict_ensemble(clinvar_ens_dup, tmp_dup) %>% mutate(model = 'ClinVar - DUP')  %>% rename(.pred_pathogenic = mean_score),
+    
+    predict_ensemble(clinvar_ens_del3, tmp_del) %>% mutate(model = 'ClinVar - DEL - 1:3')  %>% rename(.pred_pathogenic = mean_score),
+    predict_ensemble(decipher_ens_del3, tmp_del) %>% mutate(model = 'DECIPHER - DEL - 1:3')  %>% rename(.pred_pathogenic = mean_score),
     
     predict_ensemble(decipher_ens_del, tmp_del) %>% mutate(model = 'DECIPHER - DEL')  %>% rename(.pred_pathogenic = mean_score),
     predict_ensemble(decipher_ens_dup, tmp_dup) %>% mutate(model = 'DECIPHER - DUP')  %>% rename(.pred_pathogenic = mean_score),
